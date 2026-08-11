@@ -68,8 +68,15 @@ import type {
   TurnDriver,
   TurnSubmission,
 } from "@/lib/driver";
+import {
+  parseResearchList,
+  parseResearchRun,
+  type ResearchRun,
+  type ResearchSelector,
+  type ResearchSummary,
+} from "@/lib/deepResearch";
 import { parseCapabilities, settingsToWire, type DeploymentCapabilities } from "@/lib/settings";
-import { SseHttpError, streamTurnEvents } from "@/lib/sse";
+import { decodeTurnFrame, parseSseStream, SseHttpError, streamTurnEvents } from "@/lib/sse";
 import type {
   DebugTrace,
   SessionLineageData,
@@ -511,6 +518,129 @@ export async function patchLeadStatus(
     throw new Error("the status changed but the response does not name the lead");
   }
   return lead;
+}
+
+/* ------------------------------------------------------------------ */
+/* Deep research — the mode's three reads and its one write            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * `POST /v1/deep-research` — start a run over a target population.
+ *
+ * Returns the moment the run is registered, NOT when it finishes: the run
+ * continues server-side and the caller navigates to its own surface to
+ * watch it. The population goes out as the selector it arrived as, byte for
+ * byte — that is the whole honesty of the offer, and re-composing it here
+ * would be a chance to launch something the reader did not choose.
+ *
+ * `session_id` is optional and deliberately omitted by every launch this
+ * client makes: the run mints its own session, so a run started from a lead
+ * card never lands in the middle of somebody's open conversation.
+ */
+export async function startDeepResearch(
+  population: ResearchSelector,
+  options: RequestOptions & { question?: string; sessionId?: string } = {},
+): Promise<ResearchRun> {
+  const base = options.baseUrl ?? apiBaseUrl();
+  const raw = await requestJson(
+    `${base}/v1/deep-research`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        population,
+        ...(options.question ? { question: options.question } : {}),
+        ...(options.sessionId ? { session_id: options.sessionId } : {}),
+      }),
+    },
+    options,
+  );
+  const { value, drift } = parseResearchRun(raw);
+  if (drift.length > 0) reportDriftToConsole(drift, "POST /v1/deep-research", options.onDrift);
+  if (!value) throw new Error("the run started but the response does not name it");
+  return value;
+}
+
+/**
+ * `GET /v1/deep-research/{run_id}` — how far one run has got, and its
+ * report once it is finished.
+ *
+ * This is what a permalink resolves through. A run that is still going
+ * comes back with its progress and no report, which is exactly what the
+ * surface renders: the same address is the waiting room and the report,
+ * and it becomes the second without the reader doing anything.
+ */
+export async function fetchDeepResearchRun(
+  runId: string,
+  options: RequestOptions = {},
+): Promise<ResearchRun> {
+  const base = options.baseUrl ?? apiBaseUrl();
+  const raw = await requestJson(
+    `${base}/v1/deep-research/${encodeURIComponent(runId)}`,
+    { method: "GET" },
+    options,
+  );
+  const { value, drift } = parseResearchRun(raw);
+  if (drift.length > 0) {
+    reportDriftToConsole(drift, `GET /v1/deep-research/${runId}`, options.onDrift);
+  }
+  if (!value) throw new Error("this run's response failed contract validation");
+  return value;
+}
+
+/** `GET /v1/deep-research` — this tenant's runs, newest first. */
+export async function fetchDeepResearchRuns(
+  options: RequestOptions = {},
+): Promise<ResearchSummary[]> {
+  const base = options.baseUrl ?? apiBaseUrl();
+  const raw = await requestJson(`${base}/v1/deep-research`, { method: "GET" }, options);
+  return parseResearchList(raw);
+}
+
+/**
+ * `GET /v1/deep-research/{run_id}/stream` — the run's progress, frame by
+ * frame.
+ *
+ * A GET stream, so this could have been an `EventSource` — and is not, for
+ * two reasons that both matter here. `EventSource` cannot carry the
+ * headers a deployed tenant will need, and it RECONNECTS on its own with
+ * no way to say "the run finished, stop": a run that completes would be
+ * re-opened every three seconds forever. `fetch` plus the SSE parser this
+ * app already owns gives one connection, ended by the caller's signal.
+ *
+ * A watcher that attaches late is caught up by the server with the frames
+ * already emitted, so joining mid-run — which is what a permalink opened
+ * thirty seconds in IS — misses nothing.
+ */
+export async function streamDeepResearch(
+  runId: string,
+  onFrame: (frame: { kind: string; data: Record<string, unknown> }) => void,
+  options: RequestOptions = {},
+): Promise<void> {
+  const base = options.baseUrl ?? apiBaseUrl();
+  const doFetch = options.fetchImpl ?? fetch;
+  const response = await doFetch(
+    `${base}/v1/deep-research/${encodeURIComponent(runId)}/stream`,
+    {
+      method: "GET",
+      headers: { Accept: "text/event-stream" },
+      ...(options.signal ? { signal: options.signal } : {}),
+    },
+  );
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    const { envelope } = envelopeFromText(text);
+    throw new ApiRequestError(
+      response.status,
+      envelope,
+      envelope?.message ?? `could not watch this run: HTTP ${response.status}`,
+    );
+  }
+  if (!response.body) throw new Error("this run's progress stream returned no body");
+  for await (const message of parseSseStream(response.body)) {
+    const frame = decodeTurnFrame(message);
+    if (frame) onFrame(frame);
+  }
 }
 
 function reportDriftToConsole(

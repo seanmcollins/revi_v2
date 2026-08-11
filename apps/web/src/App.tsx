@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { MonitorsSurface } from "@/components/monitors/MonitorsSurface";
 import { HomeRoute } from "@/routes/HomeRoute";
 import { NotFound } from "@/routes/NotFound";
+import { ResearchRoute } from "@/routes/ResearchRoute";
 import { RootLayout } from "@/routes/RootLayout";
 import { WorkspaceRoute } from "@/routes/WorkspaceRoute";
 
@@ -57,6 +58,15 @@ export function AppRoutes() {
         <Route path="/" element={<HomeRoute />} />
         <Route path="/s/:sessionId" element={<WorkspaceRoute />} />
         <Route path="/i/:investigationId" element={<WorkspaceRoute />} />
+        {/* A DEEP-RESEARCH RUN, at its own address. Its own element and a
+            real mount, like Monitors: the run surface is not a
+            conversation — it has no composer and no thread — and it owns a
+            subscription keyed on the run id, so it must not reconcile
+            across two different runs. The run also persists as an
+            investigation inside a session of its own, so `/s/{id}` still
+            resolves to the same work as the restored answer the server
+            stored; this route is that work read as the composed report. */}
+        <Route path="/r/:runId" element={<ResearchRoute />} />
         {/* Monitors is a different surface, so it is a different element
             and a real mount — which is what its arrival announcement and
             focus move depend on. */}

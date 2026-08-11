@@ -16,6 +16,7 @@ import { WarningList } from "@/components/banners/WarningBanner";
 import { DetectionBadge } from "@/components/portfolio/DetectionBadge";
 import { LeadStatusControl } from "@/components/monitors/LeadStatus";
 import { TimeToImpactLine } from "@/components/monitors/TimeToImpactLine";
+import { RunDeepResearchButton } from "@/components/research/ResearchOffer";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { portfolioToCsv } from "@/lib/export";
@@ -654,13 +655,22 @@ export function PortfolioCard({
             </Tooltip>
           )}
 
-          <div className="mt-1.5 flex items-center justify-between gap-2">
+          <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
             <DetectionBadge
               priorityFormulaVersion={item.priorityFormulaVersion}
               sourceWatermarkId={item.sourceWatermarkId}
               priority={item.priority}
               priorityScore={item.priorityScore}
             />
+            {/* THE DEEPER QUESTION, beside the drill rather than instead of
+                it. Drilling opens the card as an ordinary investigation;
+                this starts a minute-long recoverability run over the
+                population the card is about. Persistent in both the rail's
+                dense card and Home's — unlike the drill, it is the only
+                route to a surface that does not otherwise exist, and a
+                hover-only control does not exist on a touch screen, in a
+                screenshot or on a projector. */}
+            {item.deepResearch && <RunDeepResearchButton offer={item.deepResearch} />}
             {canDrill ? (
               <Button
                 variant="ghost"

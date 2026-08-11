@@ -15,6 +15,7 @@
  * live worklist as well as the fixture.
  */
 
+import type { ResearchOffer } from "@/lib/deepResearch";
 import type { LeadStatus, TimeToImpact } from "@/lib/monitors";
 import type { Refinement } from "@/lib/types";
 
@@ -356,6 +357,17 @@ export interface PortfolioItem {
    * explain it.
    */
   timeToImpact?: TimeToImpact;
+  /**
+   * `AnomalyCard.deep_research` — the recoverability run this card could
+   * launch, when its own cut is one the mode can target.
+   *
+   * Offered on 3 of 33 live cards and absent on the rest, which is the
+   * whole reason it is read rather than derived: a client that synthesized
+   * a selector from `dimensions` would offer runs over cuts the mode
+   * cannot target and would launch them over a population nobody chose.
+   * The card renders the offer's own selector, unmodified.
+   */
+  deepResearch?: ResearchOffer;
 }
 
 export const PORTFOLIO_ITEMS: PortfolioItem[] = [

@@ -10,6 +10,7 @@ import { ClarificationPrompt } from "@/components/clarification/ClarificationPro
 import { DebugTracePanel } from "@/components/debug/DebugTracePanel";
 import { FeedbackTriage } from "@/components/feedback/FeedbackTriage";
 import { MonitorDeclarationNote, MonitorRefusedNote } from "@/components/monitors/MonitorDeclarationNote";
+import { ResearchLaunchCard } from "@/components/research/ResearchLaunchCard";
 import { StageRail } from "@/components/chat/StageRail";
 import { AnswerWorklist } from "@/components/worklist/AnswerWorklist";
 import { Button } from "@/components/ui/button";
@@ -181,6 +182,18 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
       )}
 
       {variant !== "b" && worklistBlock}
+
+      {/* "RUN DEEP RESEARCH ON X", ANSWERED WITH THE OFFER.
+          The server recognised the request and resolved the population;
+          nothing has started. Below the answer in every layout, because
+          the answer above IS an answer to the question that was asked and
+          this is the deeper thing on offer next — not a correction to it,
+          and not a refusal. See `ResearchLaunchCard`. */}
+      {a.deepResearch && (
+        <div className="fade-up">
+          <ResearchLaunchCard offer={a.deepResearch} />
+        </div>
+      )}
 
       {a.clarification && (
         <ClarificationPrompt

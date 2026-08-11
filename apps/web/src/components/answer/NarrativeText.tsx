@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment } from "react";
+import { Fragment, type ReactNode } from "react";
 
 import { ReferentChip } from "@/components/answer/ReferentChip";
 import { cn } from "@/lib/utils";
@@ -105,6 +105,46 @@ export function narrativeClusters(text: string): Cluster[] {
 }
 
 /**
+ * `**$1,167,668.88**` — the composer's own emphasis on the figure a
+ * paragraph is about.
+ *
+ * The prose composer is a language model writing under a directive that
+ * says "state the total first", and on the how-much shape it marks that
+ * total. The deep-research write-up carries it on every run; an ordinary
+ * answer's rarely does. Rendered as emphasis rather than printed as four
+ * asterisks — which is what a reader saw, in the middle of the largest
+ * number in the report.
+ *
+ * DELIBERATELY THE ONLY MARKUP THIS UNDERSTANDS. It is not a markdown
+ * renderer and must not become one: a composer's output is prose that is
+ * checked figure by figure against certified findings, and a client that
+ * interpreted headings, lists or links in it would be giving structure to
+ * text nobody validated as structured. Non-greedy, single-line, and it
+ * never spans a paragraph break, so an unbalanced pair leaves the sentence
+ * exactly as it arrived.
+ */
+const STRONG_SPAN = /\*\*([^*\n]+)\*\*/g;
+
+function withEmphasis(text: string, key: string): ReactNode {
+  if (!text.includes("**")) return text;
+  const parts: ReactNode[] = [];
+  let last = 0;
+  for (const match of text.matchAll(STRONG_SPAN)) {
+    const start = match.index;
+    if (start > last) parts.push(text.slice(last, start));
+    parts.push(
+      <strong key={`${key}-${start}`} className="font-semibold text-foreground">
+        {match[1]}
+      </strong>,
+    );
+    last = start + match[0].length;
+  }
+  if (parts.length === 0) return text;
+  if (last < text.length) parts.push(text.slice(last));
+  return parts;
+}
+
+/**
  * Narrative with inline referent citations: "F1" / "[F1]" tokens become
  * live referent chips (hover card, click-to-open-the-fact).
  */
@@ -167,7 +207,7 @@ export function NarrativeText({
             ))}
           </span>
         ) : (
-          <Fragment key={i}>{part.value}</Fragment>
+          <Fragment key={i}>{withEmphasis(part.value, `text-${i}`)}</Fragment>
         ),
       )}
     </p>

@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Search,
   Stethoscope,
+  Telescope,
 } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
@@ -27,7 +28,8 @@ import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { apiBaseUrl } from "@/lib/apiDriver";
 import { displaySessionTitle, relativeTime } from "@/lib/format";
-import { sessionLinkFor } from "@/lib/links";
+import { researchPath, sessionLinkFor } from "@/lib/links";
+import { useDeepResearchRuns } from "@/lib/useDeepResearch";
 import { REFERENCE_QUESTIONS } from "@/lib/mock/reference";
 import { hasUnseenLoad } from "@/lib/monitorsVisit";
 import { PANE_SHORTCUTS, paneToggleLabel } from "@/lib/panes";
@@ -616,6 +618,20 @@ function SessionList() {
   const [query, setQuery] = useState("");
 
   /**
+   * WHICH OF THESE SESSIONS IS A DEEP-RESEARCH RUN.
+   *
+   * Read once for the whole rail and keyed by session id, because that is
+   * the only join the wire offers: a run publishes the session it lives
+   * in, and a session publishes nothing about the run. `enabled` on api
+   * mode alone — the mock fixture has no deployment and therefore no runs,
+   * and asking would report "no deployment" about this app's own startup.
+   */
+  const runs = useDeepResearchRuns(mode === "api" && driver !== null);
+  const runBySession = new Map(
+    (runs.data ?? []).map((run) => [run.session_id, run.id] as const),
+  );
+
+  /**
    * A SESSION WITH NO QUESTION IN IT IS NOT SOMEBODY'S WORK.
    *
    * The live tenant's list opens with fourteen consecutive rows reading
@@ -685,6 +701,25 @@ function SessionList() {
    * rewrite is not fought over a session already open at its own link.
    */
   const openSession = async (id: string): Promise<void> => {
+    // A DEEP-RESEARCH RUN IS A SESSION, AND IT IS NOT A CONVERSATION.
+    //
+    // The run persists as an investigation inside a session of its own, so
+    // `GET /v1/sessions` lists it here like any other work — which is
+    // correct, and which is also how a row titled with a research question
+    // used to open as a restored answer card: the report's own composition
+    // (the determination at display size, the per-population table, the
+    // contrasts with their tests in words) rebuilt as a generic turn.
+    //
+    // `GET /v1/deep-research` is the only thing on the wire that maps a
+    // session back to the run inside it, so the row uses it: a session
+    // this tenant's run list claims goes to the run's own surface, and
+    // every other session opens exactly as before. A failed or unread run
+    // list simply means no row is re-pointed.
+    const run = runBySession.get(id);
+    if (run !== undefined) {
+      navigate(researchPath(run));
+      return;
+    }
     await switchSession(id);
     const path = sessionPath(id);
     if (pathname !== path) navigate(path);
@@ -759,6 +794,7 @@ function SessionList() {
             const pending = session.sessionId === switchingSessionId;
             const title = displaySessionTitle(session.title);
             const confirming = session.sessionId === confirmingArchiveId;
+            const researchRun = runBySession.get(session.sessionId);
             if (confirming) {
               return (
                 <li key={session.sessionId}>
@@ -794,7 +830,14 @@ function SessionList() {
                   // the one with the least room to explain itself. The
                   // instant is read as a date rather than as an ISO
                   // timestamp for the same reason.
-                  aria-label={`${title} — ${session.turnCount} question${
+                  data-research-run={researchRun}
+                  // A run says so in its accessible name. The row looks
+                  // like every other row and opens somewhere different,
+                  // and a reader who cannot see the mark beside the title
+                  // is entitled to know that before they press it.
+                  aria-label={`${
+                    researchRun ? `Deep research report: ${title}` : title
+                  } — ${session.turnCount} question${
                     session.turnCount === 1 ? "" : "s"
                   }, last active ${relativeTime(session.lastActivity)}`}
                   title={`${title} · ${session.turnCount} question${
@@ -820,7 +863,15 @@ function SessionList() {
                     busy && !pending && "cursor-not-allowed opacity-50",
                   )}
                 >
-                  <span className="truncate">{title}</span>
+                  <span className="flex min-w-0 items-baseline gap-1.5">
+                    {researchRun !== undefined && (
+                      <Telescope
+                        aria-hidden
+                        className="size-3 shrink-0 self-center text-muted-foreground"
+                      />
+                    )}
+                    <span className="truncate">{title}</span>
+                  </span>
                   {/* The age, in the quietest ink on the rail: a scanning
                       aid, not a column of data — the exact instant and the
                       turn count are on the row's accessible name and its

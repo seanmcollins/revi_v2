@@ -16,6 +16,10 @@
 // type here (instead of re-declaring it) is what keeps the event union and
 // the parser from drifting apart.
 import type { MonitorDeclaration, MonitorRefusal, WorklistData } from "@/lib/contract";
+// Generated from the OpenAPI document (M48's twenty-five deep-research
+// schemas), named in `lib/deepResearch.ts`. Type-only for the same reason
+// the line above is.
+import type { ResearchOffer } from "@/lib/deepResearch";
 
 /* ------------------------------------------------------------------ */
 /* Grades (revi_kernel.grades)                                         */
@@ -1351,6 +1355,17 @@ export interface TurnCompleteEvent {
    * own. Rendered where the confirmation would have been.
    */
   monitorRefused?: MonitorRefusal;
+  /**
+   * `TurnAnswer.deep_research` — the recoverability run this answer
+   * offers, because the question asked for one.
+   *
+   * An OFFER, never a launch. A run is about a minute of work and a real
+   * model call, so it is started by a press rather than by a sentence
+   * being interpreted, and the selector it carries is what makes that
+   * press honest: the population is already resolved, so what is started
+   * is exactly what the reader chose.
+   */
+  deepResearch?: ResearchOffer;
   /** Present only when the settings in force for the turn had debug on. */
   debug?: DebugTrace;
 }

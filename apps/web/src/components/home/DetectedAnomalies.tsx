@@ -10,8 +10,11 @@ import {
 } from "@/components/answer/ThingsToKnow";
 import { FigureBand, KeyFigure } from "@/components/figures/KeyFigure";
 import { LaneHeader, PortfolioCard } from "@/components/portfolio/PortfolioPanel";
+import { ResearchLaunchCard } from "@/components/research/ResearchLaunchCard";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { PortfolioSnapshotData } from "@/lib/contract";
+import { allOpenSelector } from "@/lib/deepResearch";
 import { dataLoadDate, rankingVersionLabel } from "@/lib/format";
 import { keyFigures } from "@/lib/homeFigures";
 import { groupByLane } from "@/lib/portfolioLanes";
@@ -21,6 +24,55 @@ import type { WarningEvent } from "@/lib/types";
 
 /** How many cards each lane shows before "Show all". */
 const COLLAPSED_COUNT = 4;
+
+/** `keyFigures`' handle for the cell this page's whole claim rests on. */
+const STILL_CATCHABLE = "still_catchable";
+
+/**
+ * A WAY INTO THE DEEPER MEASUREMENT, from the figure that raises the
+ * question.
+ *
+ * Subtle on purpose and honest about its scope. The figure above it is a
+ * lane total from the detection feed; a run is over EVERY open denial,
+ * which is a different population and a different kind of number — so the
+ * control opens a card that says which, rather than reading as "explain
+ * the figure above me".
+ *
+ * It opens the same confirmation every other entry point opens, for the
+ * same reason: a minute of work and a real model call are stated before
+ * the click, never discovered after it. The offer is composed here rather
+ * than read off a payload because there is no payload for "all of it" —
+ * `allOpenSelector` is the mode's own default population, and the label
+ * is the same phrase the server writes for it.
+ */
+function ResearchAllOpenLink() {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label="Deep research on every open denial — see what it will analyze"
+          className="focus-ring mt-0.5 block rounded text-left text-micro text-muted-foreground underline decoration-dotted underline-offset-2 transition-colors duration-150 hover:text-foreground hover:decoration-solid"
+        >
+          What of it actually comes back? →
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-[24rem] max-w-[calc(100vw-2rem)] p-3">
+        <ResearchLaunchCard
+          offer={{
+            population: allOpenSelector(),
+            label: "Run deep research",
+            description:
+              "Measure what is realistically recoverable out of every open denial, on your own history, and write it up.",
+          }}
+          variant="compact"
+          onLaunched={() => setOpen(false)}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 /**
  * What this worklist says about itself, as a count that opens.
@@ -153,7 +205,26 @@ export function DetectedAnomalies({
                 label={figure.label}
                 value={figure.value}
                 {...(figure.mark !== undefined ? { mark: figure.mark } : {})}
-                {...(figure.context !== undefined ? { context: figure.context } : {})}
+                {...(figure.context !== undefined || figure.key === STILL_CATCHABLE
+                  ? {
+                      context: (
+                        <>
+                          {figure.context}
+                          {/* THE DEEPER QUESTION THIS FIGURE INVITES.
+                              "Still catchable" is a detection total — what
+                              the feed flagged and the cash effect has not
+                              landed on. The obvious next question is what
+                              of it actually comes back, and that is a
+                              different measurement over a different
+                              population: EVERY open denial, priced on this
+                              organization's own history. So the link is
+                              quiet and scoped to all of them rather than
+                              implying it re-reads this lane's dollars. */}
+                          {figure.key === STILL_CATCHABLE && <ResearchAllOpenLink />}
+                        </>
+                      ),
+                    }
+                  : {})}
                 {...(figure.labelDetail !== undefined
                   ? { labelDetail: figure.labelDetail }
                   : {})}

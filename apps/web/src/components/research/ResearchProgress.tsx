@@ -1,0 +1,234 @@
+"use client";
+
+import { AlertTriangle, Check, Telescope } from "lucide-react";
+
+import { formatCount } from "@/lib/format";
+import {
+  angleTitles,
+  isRunning,
+  phaseState,
+  populationLabel,
+  RESEARCH_PHASES,
+  type ResearchWatchState,
+} from "@/lib/deepResearch";
+import { usePrefersReducedMotion } from "@/lib/useReducedMotion";
+import { cn } from "@/lib/utils";
+
+/**
+ * THE MINUTE, ACCOUNTED FOR.
+ *
+ * A deep-research run takes about sixty seconds and the honest thing to
+ * draw for sixty seconds is not a spinner. A spinner says "something is
+ * happening"; this says which of three things is happening, how many of
+ * the angles have been measured, and — the fact that actually calibrates
+ * the wait — that almost all of the minute is the write-up rather than the
+ * measuring.
+ *
+ * THE PHASES ARE THE WIRE'S, IN THE READER'S WORDS. `plan | execute |
+ * synthesize` is the run's own vocabulary and three words from a compiler;
+ * "reading your data / running the analysis / writing it up" is the same
+ * three states said the way somebody waiting would say them. Underneath,
+ * the SERVER's own progress sentence ("Comparing payers", "Checking filing
+ * deadlines") is printed verbatim — nothing here stands in for a sentence
+ * the platform already wrote.
+ *
+ * THE ANGLES TICK OFF ONLY ONCE THEY ARE NAMED. The plan frame arrives
+ * with the finished report, so for most of the run this client holds a
+ * COUNT and no names — and it says the count rather than inventing eight
+ * plausible titles that would then be replaced by the real ones.
+ *
+ * LEAVING IS SAFE AND IT SAYS SO. The wire has no cancel, and inventing a
+ * "Stop" button that abandoned a watcher while the server kept working
+ * would be a control that lies about what it does. What is true is that
+ * the run outlives the page: it is written whether or not anybody is
+ * looking, and this address is where it will be.
+ */
+export function ResearchProgress({ state }: { state: ResearchWatchState }) {
+  const reducedMotion = usePrefersReducedMotion();
+  const { run } = state;
+  const progress = run.progress;
+  const titles = angleTitles(state);
+  const total = progress.angle_total || titles.length;
+  const done = Math.min(progress.angle_index, total);
+  const population = populationLabel(run.population);
+  const failed = run.status === "failed" || run.status === "interrupted";
+
+  return (
+    <section
+      data-research-progress={run.status}
+      aria-labelledby="research-progress-heading"
+      className="mx-auto w-full max-w-3xl space-y-5"
+    >
+      <header>
+        <p className="flex items-center gap-1.5 text-micro font-semibold uppercase tracking-widest text-muted-foreground">
+          <Telescope aria-hidden className="size-3" />
+          Deep research
+        </p>
+        <h2 id="research-progress-heading" className="mt-1 text-lead font-medium">
+          {failed ? "This run stopped" : "Working through"} {population}
+        </h2>
+        {run.data_load_label !== "" && (
+          <p className="num mt-0.5 text-micro text-muted-foreground">
+            Every number in this report is read at {run.data_load_label}.
+          </p>
+        )}
+      </header>
+
+      {failed ? (
+        /* The server's own sentence, verbatim. Nothing partial is
+           published on a failed run, so there is no half-report to offer
+           and the surface does not imply there is one. */
+        <p
+          role="alert"
+          className="flex items-start gap-2 rounded-md border border-negative/50 bg-negative/10 px-3 py-2 text-meta leading-snug"
+        >
+          <AlertTriangle aria-hidden className="mt-0.5 size-3.5 shrink-0 text-negative" />
+          <span>{run.error ?? "This run stopped before it could finish."}</span>
+        </p>
+      ) : (
+        <>
+          <ol className="space-y-2.5">
+            {RESEARCH_PHASES.map((phase) => {
+              const at = phaseState(phase.id, progress.phase, run.status);
+              return (
+                <li
+                  key={phase.id}
+                  data-phase={phase.id}
+                  data-phase-state={at}
+                  className="flex items-start gap-2.5"
+                >
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border",
+                      at === "done" && "border-verified/50 bg-verified/10 text-verified",
+                      at === "active" && "border-ring/60 bg-accent",
+                      at === "pending" && "border-border",
+                    )}
+                  >
+                    {at === "done" ? (
+                      <Check className="size-2.5" />
+                    ) : at === "active" ? (
+                      <span
+                        className={cn(
+                          "size-1.5 rounded-full bg-foreground",
+                          // The one moving thing on the surface, and it is
+                          // switched off for a reader who asked for that.
+                          !reducedMotion && "animate-pulse",
+                        )}
+                      />
+                    ) : null}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p
+                      className={cn(
+                        "text-body leading-snug",
+                        at === "pending" && "text-muted-foreground",
+                        at === "active" && "font-medium",
+                      )}
+                    >
+                      {phase.label}
+                      {/* The screen reader is told the state in words
+                          rather than by the dot's colour. */}
+                      <span className="sr-only">
+                        {at === "done"
+                          ? " — done"
+                          : at === "active"
+                            ? " — happening now"
+                            : " — not started"}
+                      </span>
+                    </p>
+                    {/* THE SERVER'S OWN SENTENCE about what it is doing,
+                        under the phase it belongs to and nowhere else —
+                        and only when it says something the label does not.
+                        The write-up's own message IS "Writing it up", and
+                        printing it under a heading reading "Writing it up"
+                        is a line that costs a reader a glance and returns
+                        nothing. */}
+                    {at === "active" &&
+                      progress.message !== "" &&
+                      progress.message.toLowerCase() !== phase.label.toLowerCase() && (
+                        <p className="mt-0.5 text-meta leading-snug text-muted-foreground">
+                          {progress.message}
+                          {phase.id === "execute" && total > 0 && (
+                            <span className="num">
+                              {" · "}
+                              {formatCount(done)} of {formatCount(total)}
+                            </span>
+                          )}
+                        </p>
+                      )}
+                    {phase.note !== undefined && at !== "pending" && (
+                      <p className="mt-0.5 text-meta leading-snug text-muted-foreground">
+                        {phase.note}
+                      </p>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+
+          {/* WHAT IT IS LOOKING AT, once the platform has named the
+              angles. Before that the count stands alone — a real fact,
+              where eight invented titles would not be. */}
+          {titles.length > 0 ? (
+            <section aria-labelledby="research-angles-heading" className="rounded-lg border p-3">
+              <h3
+                id="research-angles-heading"
+                className="text-micro font-semibold uppercase tracking-widest text-muted-foreground"
+              >
+                What it is looking at
+              </h3>
+              <ul className="mt-1.5 space-y-1">
+                {titles.map((angle) => {
+                  const complete = angle.lastIndex < done;
+                  return (
+                    <li
+                      key={`${angle.title}-${angle.lastIndex}`}
+                      data-angle-done={complete ? "true" : "false"}
+                      className="flex items-baseline gap-1.5 text-meta leading-snug"
+                    >
+                      <span
+                        aria-hidden
+                        className={cn(
+                          "shrink-0",
+                          complete ? "text-verified" : "text-muted-foreground",
+                        )}
+                      >
+                        {complete ? "✓" : "·"}
+                      </span>
+                      <span className={cn(!complete && "text-muted-foreground")}>
+                        {angle.title}
+                        {angle.cuts > 1 && (
+                          <span className="num text-muted-foreground">
+                            {" · "}
+                            {angle.cuts} cuts
+                          </span>
+                        )}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ) : (
+            total > 0 && (
+              <p className="num text-meta leading-snug text-muted-foreground">
+                {formatCount(total)} angle{total === 1 ? "" : "s"} to measure. Each is named in
+                the report.
+              </p>
+            )
+          )}
+
+          {isRunning(run.status) && (
+            <p className="max-w-[62ch] text-meta leading-snug text-muted-foreground">
+              You can leave this page. The run keeps going and the report will be here at this
+              link when it is done.
+            </p>
+          )}
+        </>
+      )}
+    </section>
+  );
+}

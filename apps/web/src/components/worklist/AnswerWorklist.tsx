@@ -3,6 +3,7 @@
 import { ArrowUpRight, Ban, GitCompareArrows, ListOrdered } from "lucide-react";
 
 import { MonitorThis } from "@/components/monitors/MonitorThis";
+import { RunDeepResearchButton } from "@/components/research/ResearchOffer";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { WorklistData } from "@/lib/contract";
@@ -284,6 +285,10 @@ function WorklistRow({ item }: { item: PortfolioItem }) {
         </p>
         <RowBasis item={item} />
       </div>
+      {/* The recoverability run this row can launch, when the platform
+          offered one. Beside the drill, persistent, and the same control
+          the rail's card carries — a lead is a lead wherever it is read. */}
+      {item.deepResearch && <RunDeepResearchButton offer={item.deepResearch} />}
       {canDrill ? (
         <Button
           variant="ghost"

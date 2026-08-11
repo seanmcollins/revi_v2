@@ -69,6 +69,7 @@ import type {
   WarningEvent,
 } from "@/lib/types";
 import { GRADE_STRENGTH } from "@/lib/types";
+import { mapResearchOffer, type ResearchOffer } from "@/lib/deepResearch";
 import { chartWindowLabel, formatMeasure, humanList, type MeasureUnit } from "@/lib/format";
 import { humanizeColumn, humanizeInline } from "@/lib/humanize";
 import { dedupeWarnings } from "@/lib/warnings";
@@ -3199,6 +3200,19 @@ export type TurnResponseData =
        * monitored.
        */
       monitorRefused?: MonitorRefusal;
+      /**
+       * `TurnAnswer.deep_research` — this question asked for a
+       * recoverability run ("run deep research on Atlas Commercial
+       * denials") and the server answered with the OFFER rather than by
+       * starting one.
+       *
+       * That split is deliberate on the wire and the client keeps it: a
+       * run is about a minute and a real model call, so it is started by a
+       * person pressing a button, not by a sentence being interpreted. The
+       * offer carries the closed selector the interpretation resolved, so
+       * what the reader presses is exactly what runs.
+       */
+      deepResearch?: ResearchOffer;
       /** Published only when the settings in force had debug on. */
       debug?: DebugTrace;
     }
@@ -3414,6 +3428,12 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
       // whenever it is non-empty — dropped the one sentence that says
       // nothing is being monitored. Read from the first-class field when it
       // is published and from the classified warning otherwise.
+      // The recoverability run this answer offers, when the question asked
+      // for one. Additive: the answer above it is a real answer and this
+      // rides alongside, exactly as the worklist does.
+      ...(mapResearchOffer(raw.deep_research) !== undefined
+        ? { deepResearch: mapResearchOffer(raw.deep_research) }
+        : {}),
       ...(readMonitorRefusal(mapMonitorRefusal(raw.monitor_refused), turnWarnings) !== undefined
         ? {
             monitorRefused: readMonitorRefusal(
@@ -4004,6 +4024,11 @@ export function turnResponseToEvents(
     // declaration that registered nothing is a state change the reader
     // must be told about, so it travels wherever the confirmation does.
     ...(response.monitorRefused ? { monitorRefused: response.monitorRefused } : {}),
+    // The deep-research offer rides on the terminal frame with the rest,
+    // and for the same reason: the interpretation that resolved the
+    // population is only published once the turn is finished, and there is
+    // no `deep_research` SSE frame.
+    ...(response.deepResearch ? { deepResearch: response.deepResearch } : {}),
     ...(response.debug ? { debug: response.debug } : {}),
   });
   return events;
@@ -5236,6 +5261,13 @@ function mapAnomalyCard(
         : {}),
       ...(mapTimeToImpact(record.time_to_impact) !== undefined
         ? { timeToImpact: mapTimeToImpact(record.time_to_impact) }
+        : {}),
+      // The recoverability run this card can launch. Read, never derived:
+      // the offer names a closed selector, and a client that assembled one
+      // from `dimensions` would offer runs over cuts the mode cannot
+      // target. Absent on most cards, which is the honest state.
+      ...(mapResearchOffer(record.deep_research) !== undefined
+        ? { deepResearch: mapResearchOffer(record.deep_research) }
         : {}),
     };
   }

@@ -26,3 +26,26 @@ export function sessionLinkFor(sessionId: string, origin: string): string {
 export function investigationLinkFor(investigationId: string, origin: string): string {
   return `${origin.replace(/\/+$/, "")}/i/${encodeURIComponent(investigationId)}`;
 }
+
+/**
+ * `/r/{run_id}` — one deep-research run: the waiting room while it works,
+ * and the report once it has.
+ *
+ * ONE ADDRESS FOR BOTH STATES, deliberately. A run takes about a minute
+ * and outlives the click that started it, so the link handed to somebody
+ * mid-run has to still be the link to the report — the surface changes
+ * under the address rather than the address changing under the reader.
+ *
+ * A sibling of `/s/{id}` rather than a child of it. A run DOES persist as
+ * an investigation in a session of its own, so `/s/{session}` resolves to
+ * it too — as the restored answer the server stored. This route is the
+ * composed artifact: the same run, read as a report rather than as a
+ * conversation.
+ */
+export function researchPath(runId: string): string {
+  return `/r/${encodeURIComponent(runId)}`;
+}
+
+export function researchLinkFor(runId: string, origin: string): string {
+  return `${origin.replace(/\/+$/, "")}${researchPath(runId)}`;
+}

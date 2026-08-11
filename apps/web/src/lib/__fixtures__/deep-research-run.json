@@ -1,0 +1,4780 @@
+{
+ "id": "dr_2707e2b4b25d4a64",
+ "session_id": "sess_6f4917f912ea",
+ "status": "complete",
+ "created_at": "2026-08-11T02:37:15.106306Z",
+ "population": {
+  "kind": "all_open",
+  "values": [],
+  "label": ""
+ },
+ "data_load_label": "the load through Aug 2, 2026",
+ "progress": {
+  "phase": "synthesize",
+  "angle_index": 8,
+  "angle_total": 8,
+  "message": "Writing it up",
+  "elapsed_ms": 14686
+ },
+ "report": {
+  "id": "dr_2707e2b4b25d4a64",
+  "research_question": "Of the denials still open, which ones are most likely to be recovered, and which payers and denial types is that money sitting with?",
+  "population": {
+   "kind": "all_open",
+   "values": [],
+   "label": "every open denial"
+  },
+  "data_load_label": "the load through Aug 2, 2026",
+  "data_edge_date": "2026-08-02",
+  "created_at": "2026-08-11T02:37:15.106306Z",
+  "completed_at": "2026-08-11T02:37:29.796373Z",
+  "duration_ms": 14686,
+  "plan": {
+   "research_question": "Of the denials still open, which ones are most likely to be recovered, and which payers and denial types is that money sitting with?",
+   "angles": [
+    {
+     "family": "expected_recovery",
+     "title": "What the open inventory is worth",
+     "purpose": "Expected recoverable dollars over the denials still open, priced only where this organization's own history supports a rate.",
+     "stratify_by": [
+      "payer",
+      "recovery_class"
+     ],
+     "within": [],
+     "basis": "decided"
+    },
+    {
+     "family": "outcome_by_stratum",
+     "title": "Recovery rates by population",
+     "purpose": "How often resubmitting works, cut by the populations that matter, with the size of the group behind every rate.",
+     "stratify_by": [
+      "payer"
+     ],
+     "within": [],
+     "basis": "decided"
+    },
+    {
+     "family": "outcome_by_stratum",
+     "title": "Recovery rates by population",
+     "purpose": "How often resubmitting works, cut by the populations that matter, with the size of the group behind every rate.",
+     "stratify_by": [
+      "recovery_class"
+     ],
+     "within": [],
+     "basis": "decided"
+    },
+    {
+     "family": "outcome_by_stratum",
+     "title": "Recovery rates by population",
+     "purpose": "How often resubmitting works, cut by the populations that matter, with the size of the group behind every rate.",
+     "stratify_by": [
+      "dollar_band"
+     ],
+     "within": [],
+     "basis": "decided"
+    },
+    {
+     "family": "payer_contrast",
+     "title": "Strongest and weakest payer",
+     "purpose": "The payer that gives the most back against the one that gives the least, and whether the gap is real or just how few denials sit behind it.",
+     "stratify_by": [],
+     "within": [],
+     "basis": "decided"
+    },
+    {
+     "family": "class_contrast",
+     "title": "Strongest and weakest denial type",
+     "purpose": "The kind of denial most worth working against the kind least worth working, tested the same way.",
+     "stratify_by": [],
+     "within": [],
+     "basis": "decided"
+    },
+    {
+     "family": "timeliness_curve",
+     "title": "Speed and what it is worth",
+     "purpose": "Recovery rate by how many days passed before the denial went back out — the price of a slow queue, in points.",
+     "stratify_by": [],
+     "within": [],
+     "basis": "decided"
+    },
+    {
+     "family": "deadline_interaction",
+     "title": "The filing deadline",
+     "purpose": "What crossing a filing deadline costs, separated by whether the limit is confirmed or still needs confirming.",
+     "stratify_by": [
+      "filing_position",
+      "filing_rule"
+     ],
+     "within": [],
+     "basis": "decided"
+    }
+   ],
+   "rationale": "The question asks both \"how much comes back\" and \"where\", so the headline pricing is cut by payer and denial type together, with single-cut recovery rates behind it to show which side of that interaction is doing the work. The two contrasts name the strongest and weakest ends with a test, and the timeliness curve plus the deadline split are the standing levers the reader can actually act on.",
+   "authored_by": "model",
+   "added_by_revi": []
+  },
+  "headline": {
+   "total_open_denials": 2865,
+   "total_open_dollars_cents": 574949512,
+   "total_expected_cents": 116766888,
+   "total_expected_interval": {
+    "low_cents": 87405242,
+    "high_cents": 151869369,
+    "confidence": "0.95"
+   },
+   "priced_open_dollars_cents": 331872982,
+   "unpriced_open_dollars_cents": 243076530,
+   "unpriced_share": "0.4227789134987560438176352431",
+   "catchable_dollars_cents": 283100286,
+   "deadline_passed_dollars_cents": 291849226,
+   "deadline_unknown_dollars_cents": 0,
+   "range_assumes_independence": true
+  },
+  "strata": [
+   {
+    "label": "Ashvale Health Plan / registration and eligibility",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Ashvale Health Plan",
+      "value_label": "Ashvale Health Plan"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "REGISTRATION",
+      "value_label": "registration and eligibility"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 23,
+    "open_dollars_cents": 3936804,
+    "catchable_dollars_cents": 2187689,
+    "deadline_passed_dollars_cents": 1749115,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Ashvale Health Plan / registration and eligibility",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Ashvale Health Plan",
+       "value_label": "Ashvale Health Plan"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "REGISTRATION",
+       "value_label": "registration and eligibility"
+      }
+     ],
+     "basis": "decided",
+     "n": 36,
+     "successes": 21,
+     "evidence": "measured",
+     "rate": "0.5833333333",
+     "interval": {
+      "low": "0.4220025157",
+      "high": "0.7285943795",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 2296469,
+    "expected_interval": {
+     "low_cents": 1661341,
+     "high_cents": 2868333,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "Atlas Commercial / clinical / medical necessity",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Atlas Commercial",
+      "value_label": "Atlas Commercial"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "CLINICAL",
+      "value_label": "clinical / medical necessity"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 161,
+    "open_dollars_cents": 30596378,
+    "catchable_dollars_cents": 7566628,
+    "deadline_passed_dollars_cents": 23029750,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Atlas Commercial / clinical / medical necessity",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Atlas Commercial",
+       "value_label": "Atlas Commercial"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "CLINICAL",
+       "value_label": "clinical / medical necessity"
+      }
+     ],
+     "basis": "decided",
+     "n": 114,
+     "successes": 21,
+     "evidence": "measured",
+     "rate": "0.1842105263",
+     "interval": {
+      "low": "0.1237603145",
+      "high": "0.2652492860",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 5636175,
+    "expected_interval": {
+     "low_cents": 3786617,
+     "high_cents": 8115667,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "Atlas Commercial / coding",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Atlas Commercial",
+      "value_label": "Atlas Commercial"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "CODING",
+      "value_label": "coding"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 51,
+    "open_dollars_cents": 8291928,
+    "catchable_dollars_cents": 3873544,
+    "deadline_passed_dollars_cents": 4418384,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Atlas Commercial / coding",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Atlas Commercial",
+       "value_label": "Atlas Commercial"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "CODING",
+       "value_label": "coding"
+      }
+     ],
+     "basis": "decided",
+     "n": 97,
+     "successes": 77,
+     "evidence": "measured",
+     "rate": "0.7938144330",
+     "interval": {
+      "low": "0.7028707214",
+      "high": "0.8623729856",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 6582252,
+    "expected_interval": {
+     "low_cents": 5828153,
+     "high_cents": 7150735,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "Atlas Commercial / registration and eligibility",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Atlas Commercial",
+      "value_label": "Atlas Commercial"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "REGISTRATION",
+      "value_label": "registration and eligibility"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 55,
+    "open_dollars_cents": 7894368,
+    "catchable_dollars_cents": 4603585,
+    "deadline_passed_dollars_cents": 3290783,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Atlas Commercial / registration and eligibility",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Atlas Commercial",
+       "value_label": "Atlas Commercial"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "REGISTRATION",
+       "value_label": "registration and eligibility"
+      }
+     ],
+     "basis": "decided",
+     "n": 154,
+     "successes": 82,
+     "evidence": "measured",
+     "rate": "0.5324675325",
+     "interval": {
+      "low": "0.4538356436",
+      "high": "0.6095190674",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 4203495,
+    "expected_interval": {
+     "low_cents": 3582746,
+     "high_cents": 4811768,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "Atlas Commercial / routing and coordination of benefits",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Atlas Commercial",
+      "value_label": "Atlas Commercial"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "ROUTING",
+      "value_label": "routing and coordination of benefits"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 92,
+    "open_dollars_cents": 23352739,
+    "catchable_dollars_cents": 9606361,
+    "deadline_passed_dollars_cents": 13746378,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Atlas Commercial / routing and coordination of benefits",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Atlas Commercial",
+       "value_label": "Atlas Commercial"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "ROUTING",
+       "value_label": "routing and coordination of benefits"
+      }
+     ],
+     "basis": "decided",
+     "n": 141,
+     "successes": 53,
+     "evidence": "measured",
+     "rate": "0.3758865248",
+     "interval": {
+      "low": "0.3002305121",
+      "high": "0.4581259676",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 8777980,
+    "expected_interval": {
+     "low_cents": 7011205,
+     "high_cents": 10698496,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "Bluestone Mutual / clinical / medical necessity",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Bluestone Mutual",
+      "value_label": "Bluestone Mutual"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "CLINICAL",
+      "value_label": "clinical / medical necessity"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 35,
+    "open_dollars_cents": 10095750,
+    "catchable_dollars_cents": 4184859,
+    "deadline_passed_dollars_cents": 5910891,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Bluestone Mutual / clinical / medical necessity",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Bluestone Mutual",
+       "value_label": "Bluestone Mutual"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "CLINICAL",
+       "value_label": "clinical / medical necessity"
+      }
+     ],
+     "basis": "decided",
+     "n": 35,
+     "successes": 7,
+     "evidence": "measured",
+     "rate": "0.2000000000",
+     "interval": {
+      "low": "0.1004244647",
+      "high": "0.3589161307",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 2019150,
+    "expected_interval": {
+     "low_cents": 1013860,
+     "high_cents": 3623528,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "Bluestone Mutual / registration and eligibility",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Bluestone Mutual",
+      "value_label": "Bluestone Mutual"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "REGISTRATION",
+      "value_label": "registration and eligibility"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 40,
+    "open_dollars_cents": 4863369,
+    "catchable_dollars_cents": 3997701,
+    "deadline_passed_dollars_cents": 865668,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Bluestone Mutual / registration and eligibility",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Bluestone Mutual",
+       "value_label": "Bluestone Mutual"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "REGISTRATION",
+       "value_label": "registration and eligibility"
+      }
+     ],
+     "basis": "decided",
+     "n": 52,
+     "successes": 25,
+     "evidence": "measured",
+     "rate": "0.4807692308",
+     "interval": {
+      "low": "0.3510411445",
+      "high": "0.6131431723",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 2338158,
+    "expected_interval": {
+     "low_cents": 1707243,
+     "high_cents": 2981941,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "Federal Medicare / clinical / medical necessity",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Federal Medicare",
+      "value_label": "Federal Medicare"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "CLINICAL",
+      "value_label": "clinical / medical necessity"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 62,
+    "open_dollars_cents": 12157114,
+    "catchable_dollars_cents": 8953708,
+    "deadline_passed_dollars_cents": 3203406,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Federal Medicare / clinical / medical necessity",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Federal Medicare",
+       "value_label": "Federal Medicare"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "CLINICAL",
+       "value_label": "clinical / medical necessity"
+      }
+     ],
+     "basis": "decided",
+     "n": 41,
+     "successes": 7,
+     "evidence": "measured",
+     "rate": "0.1707317073",
+     "interval": {
+      "low": "0.0852525198",
+      "high": "0.3126261240",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 2075605,
+    "expected_interval": {
+     "low_cents": 1036425,
+     "high_cents": 3800631,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "Federal Medicare / coding",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Federal Medicare",
+      "value_label": "Federal Medicare"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "CODING",
+      "value_label": "coding"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 11,
+    "open_dollars_cents": 3062758,
+    "catchable_dollars_cents": 3062758,
+    "deadline_passed_dollars_cents": 0,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Federal Medicare / coding",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Federal Medicare",
+       "value_label": "Federal Medicare"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "CODING",
+       "value_label": "coding"
+      }
+     ],
+     "basis": "decided",
+     "n": 57,
+     "successes": 37,
+     "evidence": "measured",
+     "rate": "0.6491228070",
+     "interval": {
+      "low": "0.5194189536",
+      "high": "0.7599957799",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 1988106,
+    "expected_interval": {
+     "low_cents": 1590855,
+     "high_cents": 2327683,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "Federal Medicare / registration and eligibility",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Federal Medicare",
+      "value_label": "Federal Medicare"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "REGISTRATION",
+      "value_label": "registration and eligibility"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 35,
+    "open_dollars_cents": 8514205,
+    "catchable_dollars_cents": 6122655,
+    "deadline_passed_dollars_cents": 2391550,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Federal Medicare / registration and eligibility",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Federal Medicare",
+       "value_label": "Federal Medicare"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "REGISTRATION",
+       "value_label": "registration and eligibility"
+      }
+     ],
+     "basis": "decided",
+     "n": 58,
+     "successes": 42,
+     "evidence": "measured",
+     "rate": "0.7241379310",
+     "interval": {
+      "low": "0.5979534481",
+      "high": "0.8224764786",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 6165459,
+    "expected_interval": {
+     "low_cents": 5091098,
+     "high_cents": 7002733,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "Federal Medicare / routing and coordination of benefits",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Federal Medicare",
+      "value_label": "Federal Medicare"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "ROUTING",
+      "value_label": "routing and coordination of benefits"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 45,
+    "open_dollars_cents": 5925605,
+    "catchable_dollars_cents": 4487014,
+    "deadline_passed_dollars_cents": 1438591,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Federal Medicare / routing and coordination of benefits",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Federal Medicare",
+       "value_label": "Federal Medicare"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "ROUTING",
+       "value_label": "routing and coordination of benefits"
+      }
+     ],
+     "basis": "decided",
+     "n": 65,
+     "successes": 27,
+     "evidence": "measured",
+     "rate": "0.4153846154",
+     "interval": {
+      "low": "0.3036024156",
+      "high": "0.5366101513",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 2461405,
+    "expected_interval": {
+     "low_cents": 1799028,
+     "high_cents": 3179740,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "Halvern Health / clinical / medical necessity",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Halvern Health",
+      "value_label": "Halvern Health"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "CLINICAL",
+      "value_label": "clinical / medical necessity"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 118,
+    "open_dollars_cents": 20856445,
+    "catchable_dollars_cents": 9738640,
+    "deadline_passed_dollars_cents": 11117805,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Halvern Health / clinical / medical necessity",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Halvern Health",
+       "value_label": "Halvern Health"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "CLINICAL",
+       "value_label": "clinical / medical necessity"
+      }
+     ],
+     "basis": "decided",
+     "n": 54,
+     "successes": 8,
+     "evidence": "measured",
+     "rate": "0.1481481481",
+     "interval": {
+      "low": "0.0770306314",
+      "high": "0.2660011528",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 3089844,
+    "expected_interval": {
+     "low_cents": 1606585,
+     "high_cents": 5547838,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "Halvern Health / coding",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Halvern Health",
+      "value_label": "Halvern Health"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "CODING",
+      "value_label": "coding"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 16,
+    "open_dollars_cents": 2330549,
+    "catchable_dollars_cents": 1769641,
+    "deadline_passed_dollars_cents": 560908,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Halvern Health / coding",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Halvern Health",
+       "value_label": "Halvern Health"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "CODING",
+       "value_label": "coding"
+      }
+     ],
+     "basis": "decided",
+     "n": 52,
+     "successes": 33,
+     "evidence": "measured",
+     "rate": "0.6346153846",
+     "interval": {
+      "low": "0.4987167813",
+      "high": "0.7519930013",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 1479002,
+    "expected_interval": {
+     "low_cents": 1162284,
+     "high_cents": 1752557,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "Halvern Health / registration and eligibility",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Halvern Health",
+      "value_label": "Halvern Health"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "REGISTRATION",
+      "value_label": "registration and eligibility"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 52,
+    "open_dollars_cents": 8526442,
+    "catchable_dollars_cents": 4077960,
+    "deadline_passed_dollars_cents": 4448482,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Halvern Health / registration and eligibility",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Halvern Health",
+       "value_label": "Halvern Health"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "REGISTRATION",
+       "value_label": "registration and eligibility"
+      }
+     ],
+     "basis": "decided",
+     "n": 74,
+     "successes": 42,
+     "evidence": "measured",
+     "rate": "0.5675675676",
+     "interval": {
+      "low": "0.4541274326",
+      "high": "0.6743388134",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 4839332,
+    "expected_interval": {
+     "low_cents": 3872091,
+     "high_cents": 5749711,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "Halvern Health / routing and coordination of benefits",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Halvern Health",
+      "value_label": "Halvern Health"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "ROUTING",
+      "value_label": "routing and coordination of benefits"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 73,
+    "open_dollars_cents": 11239679,
+    "catchable_dollars_cents": 6077225,
+    "deadline_passed_dollars_cents": 5162454,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Halvern Health / routing and coordination of benefits",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Halvern Health",
+       "value_label": "Halvern Health"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "ROUTING",
+       "value_label": "routing and coordination of benefits"
+      }
+     ],
+     "basis": "decided",
+     "n": 67,
+     "successes": 28,
+     "evidence": "measured",
+     "rate": "0.4179104478",
+     "interval": {
+      "low": "0.3074230096",
+      "high": "0.5373006850",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 4697179,
+    "expected_interval": {
+     "low_cents": 3455336,
+     "high_cents": 6039087,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "Lakewood Medicaid MCO / registration and eligibility",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Lakewood Medicaid MCO",
+      "value_label": "Lakewood Medicaid MCO"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "REGISTRATION",
+      "value_label": "registration and eligibility"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 22,
+    "open_dollars_cents": 3658207,
+    "catchable_dollars_cents": 127536,
+    "deadline_passed_dollars_cents": 3530671,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Lakewood Medicaid MCO / registration and eligibility",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Lakewood Medicaid MCO",
+       "value_label": "Lakewood Medicaid MCO"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "REGISTRATION",
+       "value_label": "registration and eligibility"
+      }
+     ],
+     "basis": "decided",
+     "n": 35,
+     "successes": 11,
+     "evidence": "measured",
+     "rate": "0.3142857143",
+     "interval": {
+      "low": "0.1855084467",
+      "high": "0.4797976361",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 1149722,
+    "expected_interval": {
+     "low_cents": 678628,
+     "high_cents": 1755199,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "Lakewood Medicaid MCO / routing and coordination of benefits",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Lakewood Medicaid MCO",
+      "value_label": "Lakewood Medicaid MCO"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "ROUTING",
+      "value_label": "routing and coordination of benefits"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 21,
+    "open_dollars_cents": 2103182,
+    "catchable_dollars_cents": 815737,
+    "deadline_passed_dollars_cents": 1287445,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Lakewood Medicaid MCO / routing and coordination of benefits",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Lakewood Medicaid MCO",
+       "value_label": "Lakewood Medicaid MCO"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "ROUTING",
+       "value_label": "routing and coordination of benefits"
+      }
+     ],
+     "basis": "decided",
+     "n": 31,
+     "successes": 12,
+     "evidence": "measured",
+     "rate": "0.3870967742",
+     "interval": {
+      "low": "0.2373310142",
+      "high": "0.5617589138",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 814135,
+    "expected_interval": {
+     "low_cents": 499150,
+     "high_cents": 1181481,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "Northbridge Commercial / clinical / medical necessity",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Northbridge Commercial",
+      "value_label": "Northbridge Commercial"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "CLINICAL",
+      "value_label": "clinical / medical necessity"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 70,
+    "open_dollars_cents": 13330971,
+    "catchable_dollars_cents": 5873508,
+    "deadline_passed_dollars_cents": 7457463,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Northbridge Commercial / clinical / medical necessity",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Northbridge Commercial",
+       "value_label": "Northbridge Commercial"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "CLINICAL",
+       "value_label": "clinical / medical necessity"
+      }
+     ],
+     "basis": "decided",
+     "n": 37,
+     "successes": 8,
+     "evidence": "measured",
+     "rate": "0.2162162162",
+     "interval": {
+      "low": "0.1138651199",
+      "high": "0.3719514839",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 2882372,
+    "expected_interval": {
+     "low_cents": 1517933,
+     "high_cents": 4958474,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "Northbridge Commercial / coding",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Northbridge Commercial",
+      "value_label": "Northbridge Commercial"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "CODING",
+      "value_label": "coding"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 17,
+    "open_dollars_cents": 2122724,
+    "catchable_dollars_cents": 592862,
+    "deadline_passed_dollars_cents": 1529862,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Northbridge Commercial / coding",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Northbridge Commercial",
+       "value_label": "Northbridge Commercial"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "CODING",
+       "value_label": "coding"
+      }
+     ],
+     "basis": "decided",
+     "n": 37,
+     "successes": 34,
+     "evidence": "measured",
+     "rate": "0.9189189189",
+     "interval": {
+      "low": "0.7869932065",
+      "high": "0.9720394259",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 1950611,
+    "expected_interval": {
+     "low_cents": 1670569,
+     "high_cents": 2063371,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "Northbridge Commercial / registration and eligibility",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Northbridge Commercial",
+      "value_label": "Northbridge Commercial"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "REGISTRATION",
+      "value_label": "registration and eligibility"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 22,
+    "open_dollars_cents": 5526056,
+    "catchable_dollars_cents": 792639,
+    "deadline_passed_dollars_cents": 4733417,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Northbridge Commercial / registration and eligibility",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Northbridge Commercial",
+       "value_label": "Northbridge Commercial"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "REGISTRATION",
+       "value_label": "registration and eligibility"
+      }
+     ],
+     "basis": "decided",
+     "n": 39,
+     "successes": 22,
+     "evidence": "measured",
+     "rate": "0.5641025641",
+     "interval": {
+      "low": "0.4097569165",
+      "high": "0.7069524612",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 3117262,
+    "expected_interval": {
+     "low_cents": 2264340,
+     "high_cents": 3906659,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "Northbridge Commercial / routing and coordination of benefits",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Northbridge Commercial",
+      "value_label": "Northbridge Commercial"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "ROUTING",
+      "value_label": "routing and coordination of benefits"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 37,
+    "open_dollars_cents": 7120106,
+    "catchable_dollars_cents": 3205425,
+    "deadline_passed_dollars_cents": 3914681,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Northbridge Commercial / routing and coordination of benefits",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Northbridge Commercial",
+       "value_label": "Northbridge Commercial"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "ROUTING",
+       "value_label": "routing and coordination of benefits"
+      }
+     ],
+     "basis": "decided",
+     "n": 33,
+     "successes": 20,
+     "evidence": "measured",
+     "rate": "0.6060606061",
+     "interval": {
+      "low": "0.4368344082",
+      "high": "0.7531689257",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 4315216,
+    "expected_interval": {
+     "low_cents": 3110307,
+     "high_cents": 5362643,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "Silverline Medicare Advantage / clinical / medical necessity",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Silverline Medicare Advantage",
+      "value_label": "Silverline Medicare Advantage"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "CLINICAL",
+      "value_label": "clinical / medical necessity"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 80,
+    "open_dollars_cents": 15948522,
+    "catchable_dollars_cents": 11374496,
+    "deadline_passed_dollars_cents": 4574026,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Silverline Medicare Advantage / clinical / medical necessity",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Silverline Medicare Advantage",
+       "value_label": "Silverline Medicare Advantage"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "CLINICAL",
+       "value_label": "clinical / medical necessity"
+      }
+     ],
+     "basis": "decided",
+     "n": 53,
+     "successes": 2,
+     "evidence": "measured",
+     "rate": "0.0377358491",
+     "interval": {
+      "low": "0.0104102873",
+      "high": "0.1275428720",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 601831,
+    "expected_interval": {
+     "low_cents": 166029,
+     "high_cents": 2034120,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "Silverline Medicare Advantage / coding",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Silverline Medicare Advantage",
+      "value_label": "Silverline Medicare Advantage"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "CODING",
+      "value_label": "coding"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 11,
+    "open_dollars_cents": 2550155,
+    "catchable_dollars_cents": 1500805,
+    "deadline_passed_dollars_cents": 1049350,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Silverline Medicare Advantage / coding",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Silverline Medicare Advantage",
+       "value_label": "Silverline Medicare Advantage"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "CODING",
+       "value_label": "coding"
+      }
+     ],
+     "basis": "decided",
+     "n": 45,
+     "successes": 22,
+     "evidence": "measured",
+     "rate": "0.4888888889",
+     "interval": {
+      "low": "0.3495702375",
+      "high": "0.6299553536",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 1246742,
+    "expected_interval": {
+     "low_cents": 891458,
+     "high_cents": 1606484,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "Silverline Medicare Advantage / registration and eligibility",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Silverline Medicare Advantage",
+      "value_label": "Silverline Medicare Advantage"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "REGISTRATION",
+      "value_label": "registration and eligibility"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 29,
+    "open_dollars_cents": 8031057,
+    "catchable_dollars_cents": 6360697,
+    "deadline_passed_dollars_cents": 1670360,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Silverline Medicare Advantage / registration and eligibility",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Silverline Medicare Advantage",
+       "value_label": "Silverline Medicare Advantage"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "REGISTRATION",
+       "value_label": "registration and eligibility"
+      }
+     ],
+     "basis": "decided",
+     "n": 60,
+     "successes": 31,
+     "evidence": "measured",
+     "rate": "0.5166666667",
+     "interval": {
+      "low": "0.3930781003",
+      "high": "0.6382495046",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 4149379,
+    "expected_interval": {
+     "low_cents": 3156833,
+     "high_cents": 5125818,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "Silverline Medicare Advantage / routing and coordination of benefits",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Silverline Medicare Advantage",
+      "value_label": "Silverline Medicare Advantage"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "ROUTING",
+      "value_label": "routing and coordination of benefits"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 97,
+    "open_dollars_cents": 18194740,
+    "catchable_dollars_cents": 14810263,
+    "deadline_passed_dollars_cents": 3384477,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Silverline Medicare Advantage / routing and coordination of benefits",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Silverline Medicare Advantage",
+       "value_label": "Silverline Medicare Advantage"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "ROUTING",
+       "value_label": "routing and coordination of benefits"
+      }
+     ],
+     "basis": "decided",
+     "n": 121,
+     "successes": 86,
+     "evidence": "measured",
+     "rate": "0.7107438017",
+     "interval": {
+      "low": "0.6244586368",
+      "high": "0.7840594988",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 12931799,
+    "expected_interval": {
+     "low_cents": 11361863,
+     "high_cents": 14265759,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "State Medicaid / clinical / medical necessity",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "State Medicaid",
+      "value_label": "State Medicaid"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "CLINICAL",
+      "value_label": "clinical / medical necessity"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 197,
+    "open_dollars_cents": 37103534,
+    "catchable_dollars_cents": 17767383,
+    "deadline_passed_dollars_cents": 19336151,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "State Medicaid / clinical / medical necessity",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "State Medicaid",
+       "value_label": "State Medicaid"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "CLINICAL",
+       "value_label": "clinical / medical necessity"
+      }
+     ],
+     "basis": "decided",
+     "n": 87,
+     "successes": 6,
+     "evidence": "measured",
+     "rate": "0.0689655172",
+     "interval": {
+      "low": "0.0319888394",
+      "high": "0.1423969424",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 2558864,
+    "expected_interval": {
+     "low_cents": 1186899,
+     "high_cents": 5283430,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "State Medicaid / coding",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "State Medicaid",
+      "value_label": "State Medicaid"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "CODING",
+      "value_label": "coding"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 52,
+    "open_dollars_cents": 9334034,
+    "catchable_dollars_cents": 6375436,
+    "deadline_passed_dollars_cents": 2958598,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "State Medicaid / coding",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "State Medicaid",
+       "value_label": "State Medicaid"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "CODING",
+       "value_label": "coding"
+      }
+     ],
+     "basis": "decided",
+     "n": 79,
+     "successes": 34,
+     "evidence": "measured",
+     "rate": "0.4303797468",
+     "interval": {
+      "low": "0.3269382343",
+      "high": "0.5402780103",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 4017179,
+    "expected_interval": {
+     "low_cents": 3051653,
+     "high_cents": 5042973,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "State Medicaid / registration and eligibility",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "State Medicaid",
+      "value_label": "State Medicaid"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "REGISTRATION",
+      "value_label": "registration and eligibility"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 74,
+    "open_dollars_cents": 11873354,
+    "catchable_dollars_cents": 5647843,
+    "deadline_passed_dollars_cents": 6225511,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "State Medicaid / registration and eligibility",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "State Medicaid",
+       "value_label": "State Medicaid"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "REGISTRATION",
+       "value_label": "registration and eligibility"
+      }
+     ],
+     "basis": "decided",
+     "n": 126,
+     "successes": 61,
+     "evidence": "measured",
+     "rate": "0.4841269841",
+     "interval": {
+      "low": "0.3986361001",
+      "high": "0.5705570988",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 5748211,
+    "expected_interval": {
+     "low_cents": 4733148,
+     "high_cents": 6774426,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "State Medicaid / routing and coordination of benefits",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "State Medicaid",
+      "value_label": "State Medicaid"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "ROUTING",
+      "value_label": "routing and coordination of benefits"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 86,
+    "open_dollars_cents": 15338027,
+    "catchable_dollars_cents": 8544134,
+    "deadline_passed_dollars_cents": 6793893,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "State Medicaid / routing and coordination of benefits",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "State Medicaid",
+       "value_label": "State Medicaid"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "ROUTING",
+       "value_label": "routing and coordination of benefits"
+      }
+     ],
+     "basis": "decided",
+     "n": 118,
+     "successes": 44,
+     "evidence": "measured",
+     "rate": "0.3728813559",
+     "interval": {
+      "low": "0.2909317853",
+      "high": "0.4628466059",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 5719264,
+    "expected_interval": {
+     "low_cents": 4462320,
+     "high_cents": 7099154,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "State Medicaid MCO / coding",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "State Medicaid MCO",
+      "value_label": "State Medicaid MCO"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "CODING",
+      "value_label": "coding"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 11,
+    "open_dollars_cents": 1078829,
+    "catchable_dollars_cents": 166688,
+    "deadline_passed_dollars_cents": 912141,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "State Medicaid MCO / coding",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "State Medicaid MCO",
+       "value_label": "State Medicaid MCO"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "CODING",
+       "value_label": "coding"
+      }
+     ],
+     "basis": "decided",
+     "n": 33,
+     "successes": 23,
+     "evidence": "measured",
+     "rate": "0.6969696970",
+     "interval": {
+      "low": "0.5266186485",
+      "high": "0.8262446858",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 751911,
+    "expected_interval": {
+     "low_cents": 568131,
+     "high_cents": 891377,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "State Medicaid MCO / registration and eligibility",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "State Medicaid MCO",
+      "value_label": "State Medicaid MCO"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "REGISTRATION",
+      "value_label": "registration and eligibility"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 34,
+    "open_dollars_cents": 5043707,
+    "catchable_dollars_cents": 767867,
+    "deadline_passed_dollars_cents": 4275840,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "State Medicaid MCO / registration and eligibility",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "State Medicaid MCO",
+       "value_label": "State Medicaid MCO"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "REGISTRATION",
+       "value_label": "registration and eligibility"
+      }
+     ],
+     "basis": "decided",
+     "n": 33,
+     "successes": 16,
+     "evidence": "measured",
+     "rate": "0.4848484848",
+     "interval": {
+      "low": "0.3250404211",
+      "high": "0.6478162455",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 2445434,
+    "expected_interval": {
+     "low_cents": 1639409,
+     "high_cents": 3267395,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "State Medicaid MCO / routing and coordination of benefits",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "State Medicaid MCO",
+      "value_label": "State Medicaid MCO"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "ROUTING",
+      "value_label": "routing and coordination of benefits"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 41,
+    "open_dollars_cents": 6392633,
+    "catchable_dollars_cents": 4748008,
+    "deadline_passed_dollars_cents": 1644625,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "State Medicaid MCO / routing and coordination of benefits",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "State Medicaid MCO",
+       "value_label": "State Medicaid MCO"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "ROUTING",
+       "value_label": "routing and coordination of benefits"
+      }
+     ],
+     "basis": "decided",
+     "n": 40,
+     "successes": 12,
+     "evidence": "measured",
+     "rate": "0.3000000000",
+     "interval": {
+      "low": "0.1807484523",
+      "high": "0.4543001882",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 1917790,
+    "expected_interval": {
+     "low_cents": 1155459,
+     "high_cents": 2904174,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "Summit Peak Medicare Advantage / registration and eligibility",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Summit Peak Medicare Advantage",
+      "value_label": "Summit Peak Medicare Advantage"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "REGISTRATION",
+      "value_label": "registration and eligibility"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 9,
+    "open_dollars_cents": 2071900,
+    "catchable_dollars_cents": 1186324,
+    "deadline_passed_dollars_cents": 885576,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Summit Peak Medicare Advantage / registration and eligibility",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Summit Peak Medicare Advantage",
+       "value_label": "Summit Peak Medicare Advantage"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "REGISTRATION",
+       "value_label": "registration and eligibility"
+      }
+     ],
+     "basis": "decided",
+     "n": 34,
+     "successes": 14,
+     "evidence": "measured",
+     "rate": "0.4117647059",
+     "interval": {
+      "low": "0.2636596836",
+      "high": "0.5777840612",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 853135,
+    "expected_interval": {
+     "low_cents": 546276,
+     "high_cents": 1197111,
+     "confidence": "0.95"
+    }
+   },
+   {
+    "label": "Summit Peak Medicare Advantage / routing and coordination of benefits",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Summit Peak Medicare Advantage",
+      "value_label": "Summit Peak Medicare Advantage"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "ROUTING",
+      "value_label": "routing and coordination of benefits"
+     }
+    ],
+    "evidence": "measured",
+    "open_denials": 21,
+    "open_dollars_cents": 3407111,
+    "catchable_dollars_cents": 2732876,
+    "deadline_passed_dollars_cents": 674235,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Summit Peak Medicare Advantage / routing and coordination of benefits",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Summit Peak Medicare Advantage",
+       "value_label": "Summit Peak Medicare Advantage"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "ROUTING",
+       "value_label": "routing and coordination of benefits"
+      }
+     ],
+     "basis": "decided",
+     "n": 36,
+     "successes": 10,
+     "evidence": "measured",
+     "rate": "0.2777777778",
+     "interval": {
+      "low": "0.1584833794",
+      "high": "0.4399249000",
+      "confidence": "0.95"
+     },
+     "floor": 30
+    },
+    "expected_cents": 946420,
+    "expected_interval": {
+     "low_cents": 539970,
+     "high_cents": 1498873,
+     "confidence": "0.95"
+    }
+   }
+  ],
+  "not_estimable": [
+   {
+    "label": "Ashvale Health Plan / clinical / medical necessity",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Ashvale Health Plan",
+      "value_label": "Ashvale Health Plan"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "CLINICAL",
+      "value_label": "clinical / medical necessity"
+     }
+    ],
+    "evidence": "not_estimable",
+    "open_denials": 43,
+    "open_dollars_cents": 6912964,
+    "catchable_dollars_cents": 1989367,
+    "deadline_passed_dollars_cents": 4923597,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Ashvale Health Plan / clinical / medical necessity",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Ashvale Health Plan",
+       "value_label": "Ashvale Health Plan"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "CLINICAL",
+       "value_label": "clinical / medical necessity"
+      }
+     ],
+     "basis": "decided",
+     "n": 25,
+     "successes": 2,
+     "evidence": "not_estimable",
+     "rate": null,
+     "interval": null,
+     "floor": 30
+    },
+    "expected_cents": null,
+    "expected_interval": null
+   },
+   {
+    "label": "Ashvale Health Plan / final — non-appealable",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Ashvale Health Plan",
+      "value_label": "Ashvale Health Plan"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "FINAL",
+      "value_label": "final — non-appealable"
+     }
+    ],
+    "evidence": "not_estimable",
+    "open_denials": 38,
+    "open_dollars_cents": 8593385,
+    "catchable_dollars_cents": 219626,
+    "deadline_passed_dollars_cents": 8373759,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Ashvale Health Plan / final — non-appealable",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Ashvale Health Plan",
+       "value_label": "Ashvale Health Plan"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "FINAL",
+       "value_label": "final — non-appealable"
+      }
+     ],
+     "basis": "decided",
+     "n": 4,
+     "successes": 0,
+     "evidence": "not_estimable",
+     "rate": null,
+     "interval": null,
+     "floor": 30
+    },
+    "expected_cents": null,
+    "expected_interval": null
+   },
+   {
+    "label": "Ashvale Health Plan / routing and coordination of benefits",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Ashvale Health Plan",
+      "value_label": "Ashvale Health Plan"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "ROUTING",
+      "value_label": "routing and coordination of benefits"
+     }
+    ],
+    "evidence": "not_estimable",
+    "open_denials": 55,
+    "open_dollars_cents": 7897178,
+    "catchable_dollars_cents": 4158132,
+    "deadline_passed_dollars_cents": 3739046,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Ashvale Health Plan / routing and coordination of benefits",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Ashvale Health Plan",
+       "value_label": "Ashvale Health Plan"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "ROUTING",
+       "value_label": "routing and coordination of benefits"
+      }
+     ],
+     "basis": "decided",
+     "n": 27,
+     "successes": 12,
+     "evidence": "not_estimable",
+     "rate": null,
+     "interval": null,
+     "floor": 30
+    },
+    "expected_cents": null,
+    "expected_interval": null
+   },
+   {
+    "label": "Atlas Commercial / final — non-appealable",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Atlas Commercial",
+      "value_label": "Atlas Commercial"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "FINAL",
+      "value_label": "final — non-appealable"
+     }
+    ],
+    "evidence": "not_estimable",
+    "open_denials": 132,
+    "open_dollars_cents": 31433192,
+    "catchable_dollars_cents": 9207632,
+    "deadline_passed_dollars_cents": 22225560,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Atlas Commercial / final — non-appealable",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Atlas Commercial",
+       "value_label": "Atlas Commercial"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "FINAL",
+       "value_label": "final — non-appealable"
+      }
+     ],
+     "basis": "decided",
+     "n": 12,
+     "successes": 0,
+     "evidence": "not_estimable",
+     "rate": null,
+     "interval": null,
+     "floor": 30
+    },
+    "expected_cents": null,
+    "expected_interval": null
+   },
+   {
+    "label": "Bluestone Mutual / coding",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Bluestone Mutual",
+      "value_label": "Bluestone Mutual"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "CODING",
+      "value_label": "coding"
+     }
+    ],
+    "evidence": "not_estimable",
+    "open_denials": 16,
+    "open_dollars_cents": 6263003,
+    "catchable_dollars_cents": 3689376,
+    "deadline_passed_dollars_cents": 2573627,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Bluestone Mutual / coding",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Bluestone Mutual",
+       "value_label": "Bluestone Mutual"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "CODING",
+       "value_label": "coding"
+      }
+     ],
+     "basis": "decided",
+     "n": 25,
+     "successes": 16,
+     "evidence": "not_estimable",
+     "rate": null,
+     "interval": null,
+     "floor": 30
+    },
+    "expected_cents": null,
+    "expected_interval": null
+   },
+   {
+    "label": "Bluestone Mutual / final — non-appealable",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Bluestone Mutual",
+      "value_label": "Bluestone Mutual"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "FINAL",
+      "value_label": "final — non-appealable"
+     }
+    ],
+    "evidence": "not_estimable",
+    "open_denials": 35,
+    "open_dollars_cents": 7770113,
+    "catchable_dollars_cents": 2701817,
+    "deadline_passed_dollars_cents": 5068296,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Bluestone Mutual / final — non-appealable",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Bluestone Mutual",
+       "value_label": "Bluestone Mutual"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "FINAL",
+       "value_label": "final — non-appealable"
+      }
+     ],
+     "basis": "decided",
+     "n": 5,
+     "successes": 0,
+     "evidence": "not_estimable",
+     "rate": null,
+     "interval": null,
+     "floor": 30
+    },
+    "expected_cents": null,
+    "expected_interval": null
+   },
+   {
+    "label": "Bluestone Mutual / routing and coordination of benefits",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Bluestone Mutual",
+      "value_label": "Bluestone Mutual"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "ROUTING",
+      "value_label": "routing and coordination of benefits"
+     }
+    ],
+    "evidence": "not_estimable",
+    "open_denials": 45,
+    "open_dollars_cents": 9453562,
+    "catchable_dollars_cents": 4290229,
+    "deadline_passed_dollars_cents": 5163333,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Bluestone Mutual / routing and coordination of benefits",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Bluestone Mutual",
+       "value_label": "Bluestone Mutual"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "ROUTING",
+       "value_label": "routing and coordination of benefits"
+      }
+     ],
+     "basis": "decided",
+     "n": 25,
+     "successes": 12,
+     "evidence": "not_estimable",
+     "rate": null,
+     "interval": null,
+     "floor": 30
+    },
+    "expected_cents": null,
+    "expected_interval": null
+   },
+   {
+    "label": "Federal Medicare / final — non-appealable",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Federal Medicare",
+      "value_label": "Federal Medicare"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "FINAL",
+      "value_label": "final — non-appealable"
+     }
+    ],
+    "evidence": "not_estimable",
+    "open_denials": 54,
+    "open_dollars_cents": 14592794,
+    "catchable_dollars_cents": 9889973,
+    "deadline_passed_dollars_cents": 4702821,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Federal Medicare / final — non-appealable",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Federal Medicare",
+       "value_label": "Federal Medicare"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "FINAL",
+       "value_label": "final — non-appealable"
+      }
+     ],
+     "basis": "decided",
+     "n": 9,
+     "successes": 0,
+     "evidence": "not_estimable",
+     "rate": null,
+     "interval": null,
+     "floor": 30
+    },
+    "expected_cents": null,
+    "expected_interval": null
+   },
+   {
+    "label": "Halvern Health / final — non-appealable",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Halvern Health",
+      "value_label": "Halvern Health"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "FINAL",
+      "value_label": "final — non-appealable"
+     }
+    ],
+    "evidence": "not_estimable",
+    "open_denials": 65,
+    "open_dollars_cents": 13424180,
+    "catchable_dollars_cents": 3437734,
+    "deadline_passed_dollars_cents": 9986446,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Halvern Health / final — non-appealable",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Halvern Health",
+       "value_label": "Halvern Health"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "FINAL",
+       "value_label": "final — non-appealable"
+      }
+     ],
+     "basis": "decided",
+     "n": 13,
+     "successes": 0,
+     "evidence": "not_estimable",
+     "rate": null,
+     "interval": null,
+     "floor": 30
+    },
+    "expected_cents": null,
+    "expected_interval": null
+   },
+   {
+    "label": "Lakewood Medicaid MCO / clinical / medical necessity",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Lakewood Medicaid MCO",
+      "value_label": "Lakewood Medicaid MCO"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "CLINICAL",
+      "value_label": "clinical / medical necessity"
+     }
+    ],
+    "evidence": "not_estimable",
+    "open_denials": 55,
+    "open_dollars_cents": 12257475,
+    "catchable_dollars_cents": 7191899,
+    "deadline_passed_dollars_cents": 5065576,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Lakewood Medicaid MCO / clinical / medical necessity",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Lakewood Medicaid MCO",
+       "value_label": "Lakewood Medicaid MCO"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "CLINICAL",
+       "value_label": "clinical / medical necessity"
+      }
+     ],
+     "basis": "decided",
+     "n": 24,
+     "successes": 3,
+     "evidence": "not_estimable",
+     "rate": null,
+     "interval": null,
+     "floor": 30
+    },
+    "expected_cents": null,
+    "expected_interval": null
+   },
+   {
+    "label": "Lakewood Medicaid MCO / final — non-appealable",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Lakewood Medicaid MCO",
+      "value_label": "Lakewood Medicaid MCO"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "FINAL",
+      "value_label": "final — non-appealable"
+     }
+    ],
+    "evidence": "not_estimable",
+    "open_denials": 20,
+    "open_dollars_cents": 4021411,
+    "catchable_dollars_cents": 36606,
+    "deadline_passed_dollars_cents": 3984805,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Lakewood Medicaid MCO / final — non-appealable",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Lakewood Medicaid MCO",
+       "value_label": "Lakewood Medicaid MCO"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "FINAL",
+       "value_label": "final — non-appealable"
+      }
+     ],
+     "basis": "decided",
+     "n": 2,
+     "successes": 0,
+     "evidence": "not_estimable",
+     "rate": null,
+     "interval": null,
+     "floor": 30
+    },
+    "expected_cents": null,
+    "expected_interval": null
+   },
+   {
+    "label": "Northbridge Commercial / final — non-appealable",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Northbridge Commercial",
+      "value_label": "Northbridge Commercial"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "FINAL",
+      "value_label": "final — non-appealable"
+     }
+    ],
+    "evidence": "not_estimable",
+    "open_denials": 35,
+    "open_dollars_cents": 6527470,
+    "catchable_dollars_cents": 370274,
+    "deadline_passed_dollars_cents": 6157196,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Northbridge Commercial / final — non-appealable",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Northbridge Commercial",
+       "value_label": "Northbridge Commercial"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "FINAL",
+       "value_label": "final — non-appealable"
+      }
+     ],
+     "basis": "decided",
+     "n": 2,
+     "successes": 0,
+     "evidence": "not_estimable",
+     "rate": null,
+     "interval": null,
+     "floor": 30
+    },
+    "expected_cents": null,
+    "expected_interval": null
+   },
+   {
+    "label": "Silverline Medicare Advantage / final — non-appealable",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Silverline Medicare Advantage",
+      "value_label": "Silverline Medicare Advantage"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "FINAL",
+      "value_label": "final — non-appealable"
+     }
+    ],
+    "evidence": "not_estimable",
+    "open_denials": 67,
+    "open_dollars_cents": 12143385,
+    "catchable_dollars_cents": 8391128,
+    "deadline_passed_dollars_cents": 3752257,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Silverline Medicare Advantage / final — non-appealable",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Silverline Medicare Advantage",
+       "value_label": "Silverline Medicare Advantage"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "FINAL",
+       "value_label": "final — non-appealable"
+      }
+     ],
+     "basis": "decided",
+     "n": 4,
+     "successes": 2,
+     "evidence": "not_estimable",
+     "rate": null,
+     "interval": null,
+     "floor": 30
+    },
+    "expected_cents": null,
+    "expected_interval": null
+   },
+   {
+    "label": "State Medicaid / final — non-appealable",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "State Medicaid",
+      "value_label": "State Medicaid"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "FINAL",
+      "value_label": "final — non-appealable"
+     }
+    ],
+    "evidence": "not_estimable",
+    "open_denials": 142,
+    "open_dollars_cents": 29394154,
+    "catchable_dollars_cents": 9640964,
+    "deadline_passed_dollars_cents": 19753190,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "State Medicaid / final — non-appealable",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "State Medicaid",
+       "value_label": "State Medicaid"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "FINAL",
+       "value_label": "final — non-appealable"
+      }
+     ],
+     "basis": "decided",
+     "n": 11,
+     "successes": 0,
+     "evidence": "not_estimable",
+     "rate": null,
+     "interval": null,
+     "floor": 30
+    },
+    "expected_cents": null,
+    "expected_interval": null
+   },
+   {
+    "label": "State Medicaid MCO / clinical / medical necessity",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "State Medicaid MCO",
+      "value_label": "State Medicaid MCO"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "CLINICAL",
+      "value_label": "clinical / medical necessity"
+     }
+    ],
+    "evidence": "not_estimable",
+    "open_denials": 46,
+    "open_dollars_cents": 9633669,
+    "catchable_dollars_cents": 1088795,
+    "deadline_passed_dollars_cents": 8544874,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "State Medicaid MCO / clinical / medical necessity",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "State Medicaid MCO",
+       "value_label": "State Medicaid MCO"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "CLINICAL",
+       "value_label": "clinical / medical necessity"
+      }
+     ],
+     "basis": "decided",
+     "n": 27,
+     "successes": 3,
+     "evidence": "not_estimable",
+     "rate": null,
+     "interval": null,
+     "floor": 30
+    },
+    "expected_cents": null,
+    "expected_interval": null
+   },
+   {
+    "label": "State Medicaid MCO / final — non-appealable",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "State Medicaid MCO",
+      "value_label": "State Medicaid MCO"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "FINAL",
+      "value_label": "final — non-appealable"
+     }
+    ],
+    "evidence": "not_estimable",
+    "open_denials": 41,
+    "open_dollars_cents": 12570333,
+    "catchable_dollars_cents": 3419578,
+    "deadline_passed_dollars_cents": 9150755,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "State Medicaid MCO / final — non-appealable",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "State Medicaid MCO",
+       "value_label": "State Medicaid MCO"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "FINAL",
+       "value_label": "final — non-appealable"
+      }
+     ],
+     "basis": "decided",
+     "n": 3,
+     "successes": 0,
+     "evidence": "not_estimable",
+     "rate": null,
+     "interval": null,
+     "floor": 30
+    },
+    "expected_cents": null,
+    "expected_interval": null
+   },
+   {
+    "label": "Summit Peak Medicare Advantage / clinical / medical necessity",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Summit Peak Medicare Advantage",
+      "value_label": "Summit Peak Medicare Advantage"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "CLINICAL",
+      "value_label": "clinical / medical necessity"
+     }
+    ],
+    "evidence": "not_estimable",
+    "open_denials": 57,
+    "open_dollars_cents": 20585969,
+    "catchable_dollars_cents": 18778897,
+    "deadline_passed_dollars_cents": 1807072,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Summit Peak Medicare Advantage / clinical / medical necessity",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Summit Peak Medicare Advantage",
+       "value_label": "Summit Peak Medicare Advantage"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "CLINICAL",
+       "value_label": "clinical / medical necessity"
+      }
+     ],
+     "basis": "decided",
+     "n": 19,
+     "successes": 4,
+     "evidence": "not_estimable",
+     "rate": null,
+     "interval": null,
+     "floor": 30
+    },
+    "expected_cents": null,
+    "expected_interval": null
+   },
+   {
+    "label": "Summit Peak Medicare Advantage / final — non-appealable",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Summit Peak Medicare Advantage",
+      "value_label": "Summit Peak Medicare Advantage"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "FINAL",
+      "value_label": "final — non-appealable"
+     }
+    ],
+    "evidence": "not_estimable",
+    "open_denials": 30,
+    "open_dollars_cents": 9862367,
+    "catchable_dollars_cents": 7818298,
+    "deadline_passed_dollars_cents": 2044069,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Summit Peak Medicare Advantage / final — non-appealable",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Summit Peak Medicare Advantage",
+       "value_label": "Summit Peak Medicare Advantage"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "FINAL",
+       "value_label": "final — non-appealable"
+      }
+     ],
+     "basis": "decided",
+     "n": 1,
+     "successes": 0,
+     "evidence": "not_estimable",
+     "rate": null,
+     "interval": null,
+     "floor": 30
+    },
+    "expected_cents": null,
+    "expected_interval": null
+   },
+   {
+    "label": "Veritas Comp Fund / clinical / medical necessity",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Veritas Comp Fund",
+      "value_label": "Veritas Comp Fund"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "CLINICAL",
+      "value_label": "clinical / medical necessity"
+     }
+    ],
+    "evidence": "not_estimable",
+    "open_denials": 28,
+    "open_dollars_cents": 7009298,
+    "catchable_dollars_cents": 5763677,
+    "deadline_passed_dollars_cents": 1245621,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Veritas Comp Fund / clinical / medical necessity",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Veritas Comp Fund",
+       "value_label": "Veritas Comp Fund"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "CLINICAL",
+       "value_label": "clinical / medical necessity"
+      }
+     ],
+     "basis": "decided",
+     "n": 12,
+     "successes": 3,
+     "evidence": "not_estimable",
+     "rate": null,
+     "interval": null,
+     "floor": 30
+    },
+    "expected_cents": null,
+    "expected_interval": null
+   },
+   {
+    "label": "Veritas Comp Fund / final — non-appealable",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Veritas Comp Fund",
+      "value_label": "Veritas Comp Fund"
+     },
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "FINAL",
+      "value_label": "final — non-appealable"
+     }
+    ],
+    "evidence": "not_estimable",
+    "open_denials": 20,
+    "open_dollars_cents": 3859376,
+    "catchable_dollars_cents": 2474076,
+    "deadline_passed_dollars_cents": 1385300,
+    "deadline_unknown_dollars_cents": 0,
+    "rate_cell": {
+     "label": "Veritas Comp Fund / final — non-appealable",
+     "parts": [
+      {
+       "stratifier": "payer",
+       "stratifier_label": "Payer",
+       "value": "Veritas Comp Fund",
+       "value_label": "Veritas Comp Fund"
+      },
+      {
+       "stratifier": "recovery_class",
+       "stratifier_label": "Denial type",
+       "value": "FINAL",
+       "value_label": "final — non-appealable"
+      }
+     ],
+     "basis": "decided",
+     "n": 0,
+     "successes": 0,
+     "evidence": "not_estimable",
+     "rate": null,
+     "interval": null,
+     "floor": 30
+    },
+    "expected_cents": null,
+    "expected_interval": null
+   }
+  ],
+  "thin_populations": {
+   "populations": 6,
+   "open_denials": 41,
+   "open_dollars_cents": 8871252,
+   "floor": 11
+  },
+  "rates": [
+   {
+    "label": "Ashvale Health Plan",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Ashvale Health Plan",
+      "value_label": "Ashvale Health Plan"
+     }
+    ],
+    "basis": "decided",
+    "n": 117,
+    "successes": 53,
+    "evidence": "measured",
+    "rate": "0.4529914530",
+    "interval": {
+     "low": "0.3657204174",
+     "high": "0.5432512211",
+     "confidence": "0.95"
+    },
+    "floor": 30
+   },
+   {
+    "label": "Atlas Commercial",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Atlas Commercial",
+      "value_label": "Atlas Commercial"
+     }
+    ],
+    "basis": "decided",
+    "n": 518,
+    "successes": 233,
+    "evidence": "measured",
+    "rate": "0.4498069498",
+    "interval": {
+     "low": "0.4074923803",
+     "high": "0.4928604968",
+     "confidence": "0.95"
+    },
+    "floor": 30
+   },
+   {
+    "label": "Bluestone Mutual",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Bluestone Mutual",
+      "value_label": "Bluestone Mutual"
+     }
+    ],
+    "basis": "decided",
+    "n": 142,
+    "successes": 60,
+    "evidence": "measured",
+    "rate": "0.4225352113",
+    "interval": {
+     "low": "0.3443815309",
+     "high": "0.5047697312",
+     "confidence": "0.95"
+    },
+    "floor": 30
+   },
+   {
+    "label": "Federal Medicare",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Federal Medicare",
+      "value_label": "Federal Medicare"
+     }
+    ],
+    "basis": "decided",
+    "n": 230,
+    "successes": 113,
+    "evidence": "measured",
+    "rate": "0.4913043478",
+    "interval": {
+     "low": "0.4273715894",
+     "high": "0.5555228040",
+     "confidence": "0.95"
+    },
+    "floor": 30
+   },
+   {
+    "label": "Halvern Health",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Halvern Health",
+      "value_label": "Halvern Health"
+     }
+    ],
+    "basis": "decided",
+    "n": 260,
+    "successes": 111,
+    "evidence": "measured",
+    "rate": "0.4269230769",
+    "interval": {
+     "low": "0.3682935841",
+     "high": "0.4876805294",
+     "confidence": "0.95"
+    },
+    "floor": 30
+   },
+   {
+    "label": "Lakewood Medicaid MCO",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Lakewood Medicaid MCO",
+      "value_label": "Lakewood Medicaid MCO"
+     }
+    ],
+    "basis": "decided",
+    "n": 117,
+    "successes": 34,
+    "evidence": "measured",
+    "rate": "0.2905982906",
+    "interval": {
+     "low": "0.2160288206",
+     "high": "0.3784812053",
+     "confidence": "0.95"
+    },
+    "floor": 30
+   },
+   {
+    "label": "Northbridge Commercial",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Northbridge Commercial",
+      "value_label": "Northbridge Commercial"
+     }
+    ],
+    "basis": "decided",
+    "n": 148,
+    "successes": 84,
+    "evidence": "measured",
+    "rate": "0.5675675676",
+    "interval": {
+     "low": "0.4870406060",
+     "high": "0.6446757260",
+     "confidence": "0.95"
+    },
+    "floor": 30
+   },
+   {
+    "label": "Silverline Medicare Advantage",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Silverline Medicare Advantage",
+      "value_label": "Silverline Medicare Advantage"
+     }
+    ],
+    "basis": "decided",
+    "n": 283,
+    "successes": 143,
+    "evidence": "measured",
+    "rate": "0.5053003534",
+    "interval": {
+     "low": "0.4473700852",
+     "high": "0.5630886539",
+     "confidence": "0.95"
+    },
+    "floor": 30
+   },
+   {
+    "label": "State Medicaid",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "State Medicaid",
+      "value_label": "State Medicaid"
+     }
+    ],
+    "basis": "decided",
+    "n": 421,
+    "successes": 145,
+    "evidence": "measured",
+    "rate": "0.3444180523",
+    "interval": {
+     "low": "0.3006182779",
+     "high": "0.3910314016",
+     "confidence": "0.95"
+    },
+    "floor": 30
+   },
+   {
+    "label": "State Medicaid MCO",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "State Medicaid MCO",
+      "value_label": "State Medicaid MCO"
+     }
+    ],
+    "basis": "decided",
+    "n": 136,
+    "successes": 54,
+    "evidence": "measured",
+    "rate": "0.3970588235",
+    "interval": {
+     "low": "0.3187421648",
+     "high": "0.4810310911",
+     "confidence": "0.95"
+    },
+    "floor": 30
+   },
+   {
+    "label": "Summit Peak Medicare Advantage",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Summit Peak Medicare Advantage",
+      "value_label": "Summit Peak Medicare Advantage"
+     }
+    ],
+    "basis": "decided",
+    "n": 112,
+    "successes": 38,
+    "evidence": "measured",
+    "rate": "0.3392857143",
+    "interval": {
+     "low": "0.2582311137",
+     "high": "0.4309993193",
+     "confidence": "0.95"
+    },
+    "floor": 30
+   },
+   {
+    "label": "Veritas Comp Fund",
+    "parts": [
+     {
+      "stratifier": "payer",
+      "stratifier_label": "Payer",
+      "value": "Veritas Comp Fund",
+      "value_label": "Veritas Comp Fund"
+     }
+    ],
+    "basis": "decided",
+    "n": 49,
+    "successes": 19,
+    "evidence": "measured",
+    "rate": "0.3877551020",
+    "interval": {
+     "low": "0.2642901171",
+     "high": "0.5275400056",
+     "confidence": "0.95"
+    },
+    "floor": 30
+   },
+   {
+    "label": "clinical / medical necessity",
+    "parts": [
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "CLINICAL",
+      "value_label": "clinical / medical necessity"
+     }
+    ],
+    "basis": "decided",
+    "n": 528,
+    "successes": 74,
+    "evidence": "measured",
+    "rate": "0.1401515152",
+    "interval": {
+     "low": "0.1131333633",
+     "high": "0.1723679948",
+     "confidence": "0.95"
+    },
+    "floor": 30
+   },
+   {
+    "label": "coding",
+    "parts": [
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "CODING",
+      "value_label": "coding"
+     }
+    ],
+    "basis": "decided",
+    "n": 508,
+    "successes": 316,
+    "evidence": "measured",
+    "rate": "0.6220472441",
+    "interval": {
+     "low": "0.5791153232",
+     "high": "0.6631471936",
+     "confidence": "0.95"
+    },
+    "floor": 30
+   },
+   {
+    "label": "final — non-appealable",
+    "parts": [
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "FINAL",
+      "value_label": "final — non-appealable"
+     }
+    ],
+    "basis": "decided",
+    "n": 66,
+    "successes": 2,
+    "evidence": "measured",
+    "rate": "0.0303030303",
+    "interval": {
+     "low": "0.0083499102",
+     "high": "0.1039252191",
+     "confidence": "0.95"
+    },
+    "floor": 30
+   },
+   {
+    "label": "registration and eligibility",
+    "parts": [
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "REGISTRATION",
+      "value_label": "registration and eligibility"
+     }
+    ],
+    "basis": "decided",
+    "n": 713,
+    "successes": 374,
+    "evidence": "measured",
+    "rate": "0.5245441795",
+    "interval": {
+     "low": "0.4878543949",
+     "high": "0.5609709061",
+     "confidence": "0.95"
+    },
+    "floor": 30
+   },
+   {
+    "label": "routing and coordination of benefits",
+    "parts": [
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "ROUTING",
+      "value_label": "routing and coordination of benefits"
+     }
+    ],
+    "basis": "decided",
+    "n": 718,
+    "successes": 321,
+    "evidence": "measured",
+    "rate": "0.4470752089",
+    "interval": {
+     "low": "0.4110855214",
+     "high": "0.4836282013",
+     "confidence": "0.95"
+    },
+    "floor": 30
+   },
+   {
+    "label": "$500-$5k",
+    "parts": [
+     {
+      "stratifier": "dollar_band",
+      "stratifier_label": "Denied amount",
+      "value": "$500-$5k",
+      "value_label": "$500-$5k"
+     }
+    ],
+    "basis": "decided",
+    "n": 1245,
+    "successes": 522,
+    "evidence": "measured",
+    "rate": "0.4192771084",
+    "interval": {
+     "low": "0.3921571425",
+     "high": "0.4468936845",
+     "confidence": "0.95"
+    },
+    "floor": 30
+   },
+   {
+    "label": "over $5k",
+    "parts": [
+     {
+      "stratifier": "dollar_band",
+      "stratifier_label": "Denied amount",
+      "value": "over $5k",
+      "value_label": "over $5k"
+     }
+    ],
+    "basis": "decided",
+    "n": 382,
+    "successes": 174,
+    "evidence": "measured",
+    "rate": "0.4554973822",
+    "interval": {
+     "low": "0.4062464663",
+     "high": "0.5056344391",
+     "confidence": "0.95"
+    },
+    "floor": 30
+   },
+   {
+    "label": "under $500",
+    "parts": [
+     {
+      "stratifier": "dollar_band",
+      "stratifier_label": "Denied amount",
+      "value": "under $500",
+      "value_label": "under $500"
+     }
+    ],
+    "basis": "decided",
+    "n": 906,
+    "successes": 391,
+    "evidence": "measured",
+    "rate": "0.4315673289",
+    "interval": {
+     "low": "0.3996717776",
+     "high": "0.4640407420",
+     "confidence": "0.95"
+    },
+    "floor": 30
+   }
+  ],
+  "contrasts": [
+   {
+    "title": "The gap between your strongest and weakest payer",
+    "left": {
+     "label": "Northbridge Commercial",
+     "n": 148,
+     "successes": 84,
+     "rate": "0.5675675676",
+     "interval": {
+      "low": "0.4870406060",
+      "high": "0.6446757260",
+      "confidence": "0.95"
+     }
+    },
+    "right": {
+     "label": "Lakewood Medicaid MCO",
+     "n": 117,
+     "successes": 34,
+     "rate": "0.2905982906",
+     "interval": {
+      "low": "0.2160288206",
+      "high": "0.3784812053",
+      "confidence": "0.95"
+     }
+    },
+    "test": "two_proportion_z",
+    "risk_difference": "0.2769692770",
+    "risk_difference_interval": {
+     "low": "0.1577719689",
+     "high": "0.3842365784",
+     "confidence": "0.95"
+    },
+    "z_statistic": "4.5048325441",
+    "p_value": "0.0000066425",
+    "refusal_reason": null,
+    "implication": "The chance of seeing a gap this size if the two were really the same is under 1 in 1,000. The gap itself is somewhere between 15.8 percentage points and 38.4 percentage points."
+   },
+   {
+    "title": "The gap between your strongest and weakest denial type",
+    "left": {
+     "label": "coding",
+     "n": 508,
+     "successes": 316,
+     "rate": "0.6220472441",
+     "interval": {
+      "low": "0.5791153232",
+      "high": "0.6631471936",
+      "confidence": "0.95"
+     }
+    },
+    "right": {
+     "label": "final — non-appealable",
+     "n": 66,
+     "successes": 2,
+     "rate": "0.0303030303",
+     "interval": {
+      "low": "0.0083499102",
+      "high": "0.1039252191",
+      "confidence": "0.95"
+     }
+    },
+    "test": "two_proportion_z",
+    "risk_difference": "0.5917442138",
+    "risk_difference_interval": {
+     "low": "0.5065187685",
+     "high": "0.6383397643",
+     "confidence": "0.95"
+    },
+    "z_statistic": "9.0982998879",
+    "p_value": "0E-10",
+    "refusal_reason": null,
+    "implication": "The chance of seeing a gap this size if the two were really the same is under 1 in 1,000. The gap itself is somewhere between 50.7 percentage points and 63.8 percentage points."
+   }
+  ],
+  "timeliness": {
+   "bands": [
+    {
+     "band": "0-14",
+     "cell": {
+      "label": "0-14",
+      "parts": [
+       {
+        "stratifier": "delay_band",
+        "stratifier_label": "Days to resubmission",
+        "value": "0-14",
+        "value_label": "0-14"
+       }
+      ],
+      "basis": "decided",
+      "n": 1137,
+      "successes": 618,
+      "evidence": "measured",
+      "rate": "0.5435356201",
+      "interval": {
+       "low": "0.5144849908",
+       "high": "0.5722930617",
+       "confidence": "0.95"
+      },
+      "floor": 30
+     }
+    },
+    {
+     "band": "15-30",
+     "cell": {
+      "label": "15-30",
+      "parts": [
+       {
+        "stratifier": "delay_band",
+        "stratifier_label": "Days to resubmission",
+        "value": "15-30",
+        "value_label": "15-30"
+       }
+      ],
+      "basis": "decided",
+      "n": 779,
+      "successes": 341,
+      "evidence": "measured",
+      "rate": "0.4377406932",
+      "interval": {
+       "low": "0.4032922078",
+       "high": "0.4728002003",
+       "confidence": "0.95"
+      },
+      "floor": 30
+     }
+    },
+    {
+     "band": "31-60",
+     "cell": {
+      "label": "31-60",
+      "parts": [
+       {
+        "stratifier": "delay_band",
+        "stratifier_label": "Days to resubmission",
+        "value": "31-60",
+        "value_label": "31-60"
+       }
+      ],
+      "basis": "decided",
+      "n": 294,
+      "successes": 82,
+      "evidence": "measured",
+      "rate": "0.2789115646",
+      "interval": {
+       "low": "0.2307522275",
+       "high": "0.3327739501",
+       "confidence": "0.95"
+      },
+      "floor": 30
+     }
+    },
+    {
+     "band": "61+",
+     "cell": {
+      "label": "61+",
+      "parts": [
+       {
+        "stratifier": "delay_band",
+        "stratifier_label": "Days to resubmission",
+        "value": "61+",
+        "value_label": "61+"
+       }
+      ],
+      "basis": "decided",
+      "n": 323,
+      "successes": 46,
+      "evidence": "measured",
+      "rate": "0.1424148607",
+      "interval": {
+       "low": "0.1084977796",
+       "high": "0.1847375375",
+       "confidence": "0.95"
+      },
+      "floor": 30
+     }
+    }
+   ],
+   "within": [],
+   "implication": "Denials resubmitted within 0-14 days come back 54.4% of the time. Once the wait reaches 61+ days it is 14.2%."
+  },
+  "deadline": {
+   "rows": [
+    {
+     "position": "past_deadline",
+     "position_label": "past the filing deadline",
+     "rule": "confirmed",
+     "rule_label": "limit confirmed",
+     "cell": {
+      "label": "past the filing deadline / limit confirmed",
+      "parts": [
+       {
+        "stratifier": "filing_position",
+        "stratifier_label": "Filing deadline position",
+        "value": "past_deadline",
+        "value_label": "past the filing deadline"
+       },
+       {
+        "stratifier": "filing_rule",
+        "stratifier_label": "Filing limit authority",
+        "value": "confirmed",
+        "value_label": "limit confirmed"
+       }
+      ],
+      "basis": "decided",
+      "n": 39,
+      "successes": 0,
+      "evidence": "measured",
+      "rate": "0E-10",
+      "interval": {
+       "low": "0E-10",
+       "high": "0.0896668537",
+       "confidence": "0.95"
+      },
+      "floor": 30
+     }
+    },
+    {
+     "position": "past_deadline",
+     "position_label": "past the filing deadline",
+     "rule": "requires_confirmation",
+     "rule_label": "limit needs confirming",
+     "cell": {
+      "label": "past the filing deadline / limit needs confirming",
+      "parts": [
+       {
+        "stratifier": "filing_position",
+        "stratifier_label": "Filing deadline position",
+        "value": "past_deadline",
+        "value_label": "past the filing deadline"
+       },
+       {
+        "stratifier": "filing_rule",
+        "stratifier_label": "Filing limit authority",
+        "value": "requires_confirmation",
+        "value_label": "limit needs confirming"
+       }
+      ],
+      "basis": "decided",
+      "n": 40,
+      "successes": 3,
+      "evidence": "measured",
+      "rate": "0.0750000000",
+      "interval": {
+       "low": "0.0258360258",
+       "high": "0.1986423352",
+       "confidence": "0.95"
+      },
+      "floor": 30
+     }
+    },
+    {
+     "position": "within_deadline",
+     "position_label": "inside the filing deadline",
+     "rule": "confirmed",
+     "rule_label": "limit confirmed",
+     "cell": {
+      "label": "inside the filing deadline / limit confirmed",
+      "parts": [
+       {
+        "stratifier": "filing_position",
+        "stratifier_label": "Filing deadline position",
+        "value": "within_deadline",
+        "value_label": "inside the filing deadline"
+       },
+       {
+        "stratifier": "filing_rule",
+        "stratifier_label": "Filing limit authority",
+        "value": "confirmed",
+        "value_label": "limit confirmed"
+       }
+      ],
+      "basis": "decided",
+      "n": 595,
+      "successes": 255,
+      "evidence": "measured",
+      "rate": "0.4285714286",
+      "interval": {
+       "low": "0.3893914447",
+       "high": "0.4686678150",
+       "confidence": "0.95"
+      },
+      "floor": 30
+     }
+    },
+    {
+     "position": "within_deadline",
+     "position_label": "inside the filing deadline",
+     "rule": "requires_confirmation",
+     "rule_label": "limit needs confirming",
+     "cell": {
+      "label": "inside the filing deadline / limit needs confirming",
+      "parts": [
+       {
+        "stratifier": "filing_position",
+        "stratifier_label": "Filing deadline position",
+        "value": "within_deadline",
+        "value_label": "inside the filing deadline"
+       },
+       {
+        "stratifier": "filing_rule",
+        "stratifier_label": "Filing limit authority",
+        "value": "requires_confirmation",
+        "value_label": "limit needs confirming"
+       }
+      ],
+      "basis": "decided",
+      "n": 1859,
+      "successes": 829,
+      "evidence": "measured",
+      "rate": "0.4459386767",
+      "interval": {
+       "low": "0.4234775415",
+       "high": "0.4686227771",
+       "confidence": "0.95"
+      },
+      "floor": 30
+     }
+    }
+   ],
+   "implication": "Resubmitted inside the filing deadline, 44.2% of denials come back (over 2,454 answered denials). Past it, 3.8% do (over 79 answered denials)."
+  },
+  "censoring": {
+   "basis": "decided",
+   "data_edge_date": "2026-08-02",
+   "rows_considered": 5398,
+   "in_denominator": 2533,
+   "excluded_immature": 0,
+   "excluded_open_undecided": 212,
+   "excluded_not_pursued": 2653,
+   "excluded_unclassifiable": 0,
+   "open_undecided_in_input": 212,
+   "not_pursued_in_input": 2653,
+   "statements": [
+    "Rates here are measured over the 2,533 denials the payer has already answered, out of 5,398 denials in this population.",
+    "212 denials have been resubmitted and are still waiting on the payer. They are counted in neither the wins nor the losses.",
+    "2,653 denials have no resubmission on file. Some of those have not been worked yet rather than never; nothing in the data separates the two.",
+    "Everything above is as the data stood on Aug 2, 2026."
+   ]
+  },
+  "findings": [
+   {
+    "referent": "F1",
+    "title": "What the open denials are worth",
+    "statement": "Working the 2,865 open denials still outstanding ($5,749,495.12 denied) should bring back about $1,167,668.88, somewhere between $874,052.42 and $1,518,693.69. Priced by payer and denial type: each population's open denials at that population's own measured rate.",
+    "metric_ids": [],
+    "values": [
+     {
+      "name": "expected recoverable dollars",
+      "value": 1167668.88
+     },
+     {
+      "name": "lowest the recoverable dollars could be",
+      "value": 874052.42
+     },
+     {
+      "name": "highest the recoverable dollars could be",
+      "value": 1518693.69
+     },
+     {
+      "name": "open denied dollars",
+      "value": 5749495.12
+     },
+     {
+      "name": "open denials",
+      "value": 2865
+     }
+    ],
+    "grade": "direct",
+    "impact_cents": 116766888,
+    "confidence": "high",
+    "suggested_refinements": [],
+    "benchmarks": [],
+    "metric_caveats": []
+   },
+   {
+    "referent": "F2",
+    "title": "How much is still inside the filing deadline",
+    "statement": "Of the denied dollars still open, $2,831,002.86 is still inside the filing deadline, and $2,918,492.26 is already past it.",
+    "metric_ids": [],
+    "values": [
+     {
+      "name": "dollars inside the filing deadline",
+      "value": 2831002.86
+     },
+     {
+      "name": "dollars past the filing deadline",
+      "value": 2918492.26
+     },
+     {
+      "name": "dollars on plans with no limit on file",
+      "value": 0.0
+     }
+    ],
+    "grade": "direct",
+    "impact_cents": 283100286,
+    "confidence": "high",
+    "suggested_refinements": [],
+    "benchmarks": [],
+    "metric_caveats": []
+   },
+   {
+    "referent": "F3",
+    "title": "What your own history cannot price yet",
+    "statement": "$2,430,765.30 — 42.3% of the open denied dollars — sits in 26 populations your own history cannot price yet, and is left out of the figure above.",
+    "metric_ids": [],
+    "values": [
+     {
+      "name": "dollars no rate could price",
+      "value": 2430765.3
+     },
+     {
+      "name": "populations",
+      "value": 26
+     }
+    ],
+    "grade": "direct",
+    "impact_cents": 243076530,
+    "confidence": "high",
+    "suggested_refinements": [],
+    "benchmarks": [],
+    "metric_caveats": []
+   },
+   {
+    "referent": "F4",
+    "title": "The gap between your strongest and weakest payer",
+    "statement": "Northbridge Commercial gives back 56.8% of what you resubmit (over 148 answered denials); Lakewood Medicaid MCO gives back 29.1% (over 117 answered denials). That is a gap of 27.7 percentage points. The chance of seeing a gap this size if the two were really the same is under 1 in 1,000. The gap itself is somewhere between 15.8 percentage points and 38.4 percentage points.",
+    "metric_ids": [],
+    "values": [
+     {
+      "name": "stronger rate",
+      "value": 0.5675675676
+     },
+     {
+      "name": "stronger answered denials",
+      "value": 148
+     },
+     {
+      "name": "weaker rate",
+      "value": 0.2905982906
+     },
+     {
+      "name": "weaker answered denials",
+      "value": 117
+     },
+     {
+      "name": "gap",
+      "value": 0.276969277
+     },
+     {
+      "name": "smallest the gap could be",
+      "value": 0.1577719689
+     },
+     {
+      "name": "largest the gap could be",
+      "value": 0.3842365784
+     }
+    ],
+    "grade": "direct",
+    "impact_cents": null,
+    "confidence": "high",
+    "suggested_refinements": [],
+    "benchmarks": [],
+    "metric_caveats": []
+   },
+   {
+    "referent": "F5",
+    "title": "The gap between your strongest and weakest denial type",
+    "statement": "Coding gives back 62.2% of what you resubmit (over 508 answered denials); final — non-appealable gives back 3.0% (over 66 answered denials). That is a gap of 59.2 percentage points. The chance of seeing a gap this size if the two were really the same is under 1 in 1,000. The gap itself is somewhere between 50.7 percentage points and 63.8 percentage points.",
+    "metric_ids": [],
+    "values": [
+     {
+      "name": "stronger rate",
+      "value": 0.6220472441
+     },
+     {
+      "name": "stronger answered denials",
+      "value": 508
+     },
+     {
+      "name": "weaker rate",
+      "value": 0.0303030303
+     },
+     {
+      "name": "weaker answered denials",
+      "value": 66
+     },
+     {
+      "name": "gap",
+      "value": 0.5917442138
+     },
+     {
+      "name": "smallest the gap could be",
+      "value": 0.5065187685
+     },
+     {
+      "name": "largest the gap could be",
+      "value": 0.6383397643
+     }
+    ],
+    "grade": "direct",
+    "impact_cents": null,
+    "confidence": "high",
+    "suggested_refinements": [],
+    "benchmarks": [],
+    "metric_caveats": []
+   },
+   {
+    "referent": "F6",
+    "title": "What waiting costs",
+    "statement": "Denials resubmitted within 0-14 days come back 54.4% of the time. Once the wait reaches 61+ days it is 14.2%.",
+    "metric_ids": [],
+    "values": [
+     {
+      "name": "rate when resubmitted fastest",
+      "value": 0.5435356201
+     },
+     {
+      "name": "rate when resubmitted slowest",
+      "value": 0.1424148607
+     }
+    ],
+    "grade": "direct",
+    "impact_cents": null,
+    "confidence": "high",
+    "suggested_refinements": [],
+    "benchmarks": [],
+    "metric_caveats": []
+   },
+   {
+    "referent": "F7",
+    "title": "What crossing the filing deadline costs",
+    "statement": "Resubmitted inside the filing deadline, 44.2% of denials come back (over 2,454 answered denials). Past it, 3.8% do (over 79 answered denials).",
+    "metric_ids": [],
+    "values": [
+     {
+      "name": "past the filing deadline, limit confirmed",
+      "value": 0.0
+     },
+     {
+      "name": "past the filing deadline, limit needs confirming",
+      "value": 0.075
+     },
+     {
+      "name": "inside the filing deadline, limit confirmed",
+      "value": 0.4285714286
+     },
+     {
+      "name": "inside the filing deadline, limit needs confirming",
+      "value": 0.4459386767
+     }
+    ],
+    "grade": "direct",
+    "impact_cents": null,
+    "confidence": "high",
+    "suggested_refinements": [],
+    "benchmarks": [],
+    "metric_caveats": []
+   }
+  ],
+  "charts": [
+   {
+    "id": "deep-research-expected",
+    "chart_type": "bar",
+    "title": "Expected recoverable by population",
+    "frame_id": "deep-research-expected",
+    "x": "population",
+    "series": null,
+    "value": "expected recoverable",
+    "unit": "money_cents",
+    "grade": "direct",
+    "rows": [
+     {
+      "x": "Silverline Medicare Advantage / routing and coordination of benefits",
+      "series": null,
+      "value": 12931799,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Atlas Commercial / routing and coordination of benefits",
+      "series": null,
+      "value": 8777980,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Atlas Commercial / coding",
+      "series": null,
+      "value": 6582252,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Federal Medicare / registration and eligibility",
+      "series": null,
+      "value": 6165459,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "State Medicaid / registration and eligibility",
+      "series": null,
+      "value": 5748211,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "State Medicaid / routing and coordination of benefits",
+      "series": null,
+      "value": 5719264,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Atlas Commercial / clinical / medical necessity",
+      "series": null,
+      "value": 5636175,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Halvern Health / registration and eligibility",
+      "series": null,
+      "value": 4839332,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Halvern Health / routing and coordination of benefits",
+      "series": null,
+      "value": 4697179,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Northbridge Commercial / routing and coordination of benefits",
+      "series": null,
+      "value": 4315216,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Atlas Commercial / registration and eligibility",
+      "series": null,
+      "value": 4203495,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Silverline Medicare Advantage / registration and eligibility",
+      "series": null,
+      "value": 4149379,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     }
+    ],
+    "annotations": [
+     "Every rate here is measured on your own denials. Nothing is filled in from an industry average."
+    ],
+    "recipe_id": null,
+    "sort": null,
+    "axis_order": null
+   },
+   {
+    "id": "deep-research-rate-payer",
+    "chart_type": "bar",
+    "title": "Recovery rate by payer",
+    "frame_id": "deep-research-rate-payer",
+    "x": "population",
+    "series": null,
+    "value": "recovery rate",
+    "unit": "ratio",
+    "grade": "direct",
+    "rows": [
+     {
+      "x": "Ashvale Health Plan",
+      "series": null,
+      "value": 0.452991453,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Atlas Commercial",
+      "series": null,
+      "value": 0.4498069498,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Bluestone Mutual",
+      "series": null,
+      "value": 0.4225352113,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Federal Medicare",
+      "series": null,
+      "value": 0.4913043478,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Halvern Health",
+      "series": null,
+      "value": 0.4269230769,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Lakewood Medicaid MCO",
+      "series": null,
+      "value": 0.2905982906,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Northbridge Commercial",
+      "series": null,
+      "value": 0.5675675676,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Silverline Medicare Advantage",
+      "series": null,
+      "value": 0.5053003534,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "State Medicaid",
+      "series": null,
+      "value": 0.3444180523,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "State Medicaid MCO",
+      "series": null,
+      "value": 0.3970588235,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Summit Peak Medicare Advantage",
+      "series": null,
+      "value": 0.3392857143,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Veritas Comp Fund",
+      "series": null,
+      "value": 0.387755102,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     }
+    ],
+    "annotations": [
+     "A rate is published only where at least 30 of these denials have a final answer from the payer — Revi's recommended level for recovery rates. You can change this anytime."
+    ],
+    "recipe_id": null,
+    "sort": null,
+    "axis_order": null
+   },
+   {
+    "id": "deep-research-rate-recovery_class",
+    "chart_type": "bar",
+    "title": "Recovery rate by denial type",
+    "frame_id": "deep-research-rate-recovery_class",
+    "x": "population",
+    "series": null,
+    "value": "recovery rate",
+    "unit": "ratio",
+    "grade": "direct",
+    "rows": [
+     {
+      "x": "clinical / medical necessity",
+      "series": null,
+      "value": 0.1401515152,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "coding",
+      "series": null,
+      "value": 0.6220472441,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "final — non-appealable",
+      "series": null,
+      "value": 0.0303030303,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "registration and eligibility",
+      "series": null,
+      "value": 0.5245441795,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "routing and coordination of benefits",
+      "series": null,
+      "value": 0.4470752089,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     }
+    ],
+    "annotations": [
+     "A rate is published only where at least 30 of these denials have a final answer from the payer — Revi's recommended level for recovery rates. You can change this anytime."
+    ],
+    "recipe_id": null,
+    "sort": null,
+    "axis_order": null
+   },
+   {
+    "id": "deep-research-rate-dollar_band",
+    "chart_type": "bar",
+    "title": "Recovery rate by denied amount",
+    "frame_id": "deep-research-rate-dollar_band",
+    "x": "population",
+    "series": null,
+    "value": "recovery rate",
+    "unit": "ratio",
+    "grade": "direct",
+    "rows": [
+     {
+      "x": "$500-$5k",
+      "series": null,
+      "value": 0.4192771084,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "over $5k",
+      "series": null,
+      "value": 0.4554973822,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "under $500",
+      "series": null,
+      "value": 0.4315673289,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     }
+    ],
+    "annotations": [
+     "A rate is published only where at least 30 of these denials have a final answer from the payer — Revi's recommended level for recovery rates. You can change this anytime."
+    ],
+    "recipe_id": null,
+    "sort": null,
+    "axis_order": null
+   },
+   {
+    "id": "deep-research-contrast-payer_contrast",
+    "chart_type": "bar",
+    "title": "The gap between your strongest and weakest payer",
+    "frame_id": "deep-research-contrast-payer_contrast",
+    "x": "population",
+    "series": null,
+    "value": "recovery rate",
+    "unit": "ratio",
+    "grade": "direct",
+    "rows": [
+     {
+      "x": "Northbridge Commercial",
+      "series": null,
+      "value": 0.5675675676,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Lakewood Medicaid MCO",
+      "series": null,
+      "value": 0.2905982906,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     }
+    ],
+    "annotations": [
+     "These two were picked because they sit at the ends of the range, so read the gap as a place to look rather than a result that has been confirmed."
+    ],
+    "recipe_id": null,
+    "sort": null,
+    "axis_order": null
+   },
+   {
+    "id": "deep-research-contrast-class_contrast",
+    "chart_type": "bar",
+    "title": "The gap between your strongest and weakest denial type",
+    "frame_id": "deep-research-contrast-class_contrast",
+    "x": "population",
+    "series": null,
+    "value": "recovery rate",
+    "unit": "ratio",
+    "grade": "direct",
+    "rows": [
+     {
+      "x": "coding",
+      "series": null,
+      "value": 0.6220472441,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "final — non-appealable",
+      "series": null,
+      "value": 0.0303030303,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     }
+    ],
+    "annotations": [
+     "These two were picked because they sit at the ends of the range, so read the gap as a place to look rather than a result that has been confirmed."
+    ],
+    "recipe_id": null,
+    "sort": null,
+    "axis_order": null
+   },
+   {
+    "id": "deep-research-timeliness",
+    "chart_type": "line",
+    "title": "Recovery rate by days to resubmission",
+    "frame_id": "deep-research-timeliness",
+    "x": "days to resubmission",
+    "series": null,
+    "value": "recovery rate",
+    "unit": "ratio",
+    "grade": "direct",
+    "rows": [
+     {
+      "x": "0-14",
+      "series": null,
+      "value": 0.5435356201,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "15-30",
+      "series": null,
+      "value": 0.4377406932,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "31-60",
+      "series": null,
+      "value": 0.2789115646,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "61+",
+      "series": null,
+      "value": 0.1424148607,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     }
+    ],
+    "annotations": [
+     "A rate is published only where at least 30 of these denials have a final answer from the payer — Revi's recommended level for recovery rates. You can change this anytime."
+    ],
+    "recipe_id": null,
+    "sort": null,
+    "axis_order": [
+     "0-14",
+     "15-30",
+     "31-60",
+     "61+"
+    ]
+   },
+   {
+    "id": "deep-research-deadline",
+    "chart_type": "bar",
+    "title": "Recovery rate on each side of the filing deadline",
+    "frame_id": "deep-research-deadline",
+    "x": "filing deadline position",
+    "series": null,
+    "value": "recovery rate",
+    "unit": "ratio",
+    "grade": "direct",
+    "rows": [
+     {
+      "x": "past the filing deadline (limit confirmed)",
+      "series": null,
+      "value": 0.0,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "past the filing deadline (limit needs confirming)",
+      "series": null,
+      "value": 0.075,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "inside the filing deadline (limit confirmed)",
+      "series": null,
+      "value": 0.4285714286,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "inside the filing deadline (limit needs confirming)",
+      "series": null,
+      "value": 0.4459386767,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     }
+    ],
+    "annotations": [
+     "The drop is steeper where the filing limit is confirmed than where it is still a planning default, so the two are shown apart. Treating every limit as confirmed overstates the cliff."
+    ],
+    "recipe_id": null,
+    "sort": null,
+    "axis_order": null
+   }
+  ],
+  "warnings": [
+   {
+    "code": "DEEP_RESEARCH_NO_PRIOR",
+    "severity": "info",
+    "message": "deep_research_no_prior: Every rate here is measured on your own denials. Nothing is filled in from an industry average.",
+    "count": 1
+   },
+   {
+    "code": "DEEP_RESEARCH_INDEPENDENCE",
+    "severity": "caution",
+    "message": "deep_research_independence: The range around the total is the sum of each population's own range. Populations that share payers, staffing and seasons move together, so read it as a spread rather than a guarantee.",
+    "count": 1
+   },
+   {
+    "code": "DEEP_RESEARCH_THIN_ROLLUP",
+    "severity": "info",
+    "message": "deep_research_thin_rollup: A further 6 populations hold 41 open denials worth $88,712.52 between them. Each is smaller than 11 denials, so they are shown together rather than named.",
+    "count": 1
+   },
+   {
+    "code": "DEEP_RESEARCH_UNPRICED",
+    "severity": "caution",
+    "message": "deep_research_unpriced: $2,430,765.30 — 42.3% of the open denied dollars — sits in 26 populations your own history cannot price yet, and is left out of the figure above. These populations are counted and their denied dollars are shown, but no rate is published for them and they are left out of the total.",
+    "count": 1
+   },
+   {
+    "code": "DEEP_RESEARCH_EXTREMES",
+    "severity": "caution",
+    "message": "deep_research_extremes: These two were picked because they sit at the ends of the range, so read the gap as a place to look rather than a result that has been confirmed.",
+    "count": 2
+   },
+   {
+    "code": "DEEP_RESEARCH_CENSORING",
+    "severity": "info",
+    "message": "deep_research_censoring: Rates here are measured over the 2,533 denials the payer has already answered, out of 5,398 denials in this population.",
+    "count": 1
+   },
+   {
+    "code": "DEEP_RESEARCH_CENSORING",
+    "severity": "info",
+    "message": "deep_research_censoring: 212 denials have been resubmitted and are still waiting on the payer. They are counted in neither the wins nor the losses.",
+    "count": 1
+   },
+   {
+    "code": "DEEP_RESEARCH_CENSORING",
+    "severity": "info",
+    "message": "deep_research_censoring: 2,653 denials have no resubmission on file. Some of those have not been worked yet rather than never; nothing in the data separates the two.",
+    "count": 1
+   },
+   {
+    "code": "DEEP_RESEARCH_CENSORING",
+    "severity": "info",
+    "message": "deep_research_censoring: Everything above is as the data stood on Aug 2, 2026.",
+    "count": 1
+   }
+  ],
+  "narrative": "Priced by payer and denial type: each population's open denials at that population's own measured rate. Every rate here is measured on your own denials. Nothing is filled in from an industry average. $2,430,765.30 — 42.3% of the open denied dollars — sits in 26 populations your own history cannot price yet, and is left out of the figure above. Rates here are measured over the 2,533 denials the payer has already answered, out of 5,398 denials in this population. 212 denials have been resubmitted and are still waiting on the payer. They are counted in neither the wins nor the losses. 2,653 denials have no resubmission on file. Some of those have not been worked yet rather than never; nothing in the data separates the two. Everything above is as the data stood on Aug 2, 2026. Of the open denials your own history can price, the expected recoverable dollars come to **$1,167,668.88** (F1) — measured directly against $5,749,495.12 of open denied dollars spread over 2,865 open denials (F1). The range around that total runs from a lowest the recoverable dollars could be of $874,052.42 to a highest of $1,518,693.69 (F1); because it is built by summing each population's own range, and populations that share payers, staffing and seasons move together, read it as a spread rather than a guarantee. Reconciliation is not applicable on this answer. On where the money sits, the payer spread runs from a strongest payer recovering 56.8% of the 148 denials it has answered to a weakest payer at 29.1% of 117 answered — a gap of 27.7 points, itself falling somewhere between 15.8 and 38.4 points (F4, measured directly). By denial type the spread is far wider: 62.2% at the strong end on 508 answered denials against 3.0% at the weak end on 66 answered, a gap of 59.2 points bounded between 50.7 and 63.8 points (F5, measured directly). Both pairs were picked precisely because they sit at the ends of the range, so each gap is a place to look rather than a result that has been confirmed (F4, F5). The $2,430,765.30 across 26 populations that no rate could price (F3, measured directly) is an inventory of denied dollars awaiting enough answered history — the dollars are counted and shown, but no rate stands behind them, so nothing there should be read as a forecast of what they would return. Timing is the other axis the money divides on. Of the open denied dollars, $2,831,002.86 are still inside the filing deadline and $2,918,492.26 are past it, with nothing sitting on plans with no limit on file (F2, measured directly) — that is a position count, not a statement that the past-deadline dollars are lost. What the deadline is worth shows up in the rates themselves: inside the filing deadline, denials recover at 44.6% where the limit needs confirming and 42.9% where it is confirmed, against 7.5% and 0.0% respectively past it (F7, measured directly). Speed of work tracks the same direction, with a 54.4% recovery rate when resubmitted fastest versus 14.2% when resubmitted slowest (F6, measured directly). Read together, the priced total (F1) is best understood as what the answerable portion of the inventory supports at your own measured rates, with the strongest concentration of upside where a high-recovering denial type (F5) or payer (F4) still sits inside the filing deadline (F2, F7) and can be worked quickly (F6) — and with the unpriced populations (F3) left outside that arithmetic entirely rather than assumed to be worth nothing.",
+  "context_notes": [
+   "Getting the work out inside 0-14 days is worth 40.1 percentage points on the recovery rate compared with the slowest group.",
+   "Clinical / medical necessity denials currently take a median of 31 days to go back out.",
+   "Coding denials currently take a median of 9 days to go back out.",
+   "Final — non-appealable denials currently take a median of 49 days to go back out.",
+   "Registration and eligibility denials currently take a median of 13 days to go back out.",
+   "Routing and coordination of benefits denials currently take a median of 20 days to go back out.",
+   "The drop is steeper where the filing limit is confirmed than where it is still a planning default, so the two are shown apart. Treating every limit as confirmed overstates the cliff.",
+   "None of the 39 answered denials filed past a confirmed deadline came back. That is not the same as never: on this many denials the true rate could still be as high as 9.0%.",
+   "Clinical denials rest on medical necessity and need documentation, not a correction — they are worked more slowly and won less often.",
+   "Coding denials are usually correctable — a modifier, a code pair, or a unit count that can be fixed and sent back.",
+   "Registration and eligibility denials usually trace to demographics or coverage captured at the front end, and are correctable once the right coverage is found.",
+   "Routing and COB denials usually mean the claim went to the wrong payer or in the wrong order; the fix is a rebill to the right one."
+  ],
+  "evidence": [
+   {
+    "family": "expected_recovery",
+    "title": "What the open inventory is worth",
+    "estimator": "estimate_rates[decided] + expected_recovery",
+    "read_fingerprint": "58ffb51e16fdd05412e6628d6fa82629a89fe744e5480b2ca5a36138c636a369",
+    "rows_read": 5398,
+    "rows_in_scope": 2533,
+    "cells_published": 34,
+    "cells_refused": 25,
+    "duration_ms": 6
+   },
+   {
+    "family": "outcome_by_stratum",
+    "title": "Recovery rates by population",
+    "estimator": "estimate_rates[decided]",
+    "read_fingerprint": "58ffb51e16fdd05412e6628d6fa82629a89fe744e5480b2ca5a36138c636a369",
+    "rows_read": 5398,
+    "rows_in_scope": 2533,
+    "cells_published": 12,
+    "cells_refused": 0,
+    "duration_ms": 2
+   },
+   {
+    "family": "outcome_by_stratum",
+    "title": "Recovery rates by population",
+    "estimator": "estimate_rates[decided]",
+    "read_fingerprint": "58ffb51e16fdd05412e6628d6fa82629a89fe744e5480b2ca5a36138c636a369",
+    "rows_read": 5398,
+    "rows_in_scope": 2533,
+    "cells_published": 5,
+    "cells_refused": 0,
+    "duration_ms": 2
+   },
+   {
+    "family": "outcome_by_stratum",
+    "title": "Recovery rates by population",
+    "estimator": "estimate_rates[decided]",
+    "read_fingerprint": "58ffb51e16fdd05412e6628d6fa82629a89fe744e5480b2ca5a36138c636a369",
+    "rows_read": 5398,
+    "rows_in_scope": 2533,
+    "cells_published": 3,
+    "cells_refused": 0,
+    "duration_ms": 2
+   },
+   {
+    "family": "payer_contrast",
+    "title": "Strongest and weakest payer",
+    "estimator": "compare_rate_cells",
+    "read_fingerprint": "58ffb51e16fdd05412e6628d6fa82629a89fe744e5480b2ca5a36138c636a369",
+    "rows_read": 5398,
+    "rows_in_scope": 2533,
+    "cells_published": 12,
+    "cells_refused": 0,
+    "duration_ms": 2
+   },
+   {
+    "family": "class_contrast",
+    "title": "Strongest and weakest denial type",
+    "estimator": "compare_rate_cells",
+    "read_fingerprint": "58ffb51e16fdd05412e6628d6fa82629a89fe744e5480b2ca5a36138c636a369",
+    "rows_read": 5398,
+    "rows_in_scope": 2533,
+    "cells_published": 5,
+    "cells_refused": 0,
+    "duration_ms": 2
+   },
+   {
+    "family": "timeliness_curve",
+    "title": "Speed and what it is worth",
+    "estimator": "delay_effect_curve + estimate_durations",
+    "read_fingerprint": "58ffb51e16fdd05412e6628d6fa82629a89fe744e5480b2ca5a36138c636a369",
+    "rows_read": 5398,
+    "rows_in_scope": 0,
+    "cells_published": 4,
+    "cells_refused": 0,
+    "duration_ms": 5
+   },
+   {
+    "family": "deadline_interaction",
+    "title": "The filing deadline",
+    "estimator": "estimate_rates[filing position]",
+    "read_fingerprint": "58ffb51e16fdd05412e6628d6fa82629a89fe744e5480b2ca5a36138c636a369",
+    "rows_read": 5398,
+    "rows_in_scope": 2533,
+    "cells_published": 4,
+    "cells_refused": 0,
+    "duration_ms": 3
+   }
+  ]
+ },
+ "error": null
+}

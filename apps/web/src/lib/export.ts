@@ -23,6 +23,13 @@
 
 import type { WorklistData } from "@/lib/contract";
 import {
+  decimal,
+  populationLabel,
+  type ResearchRateCell,
+  type ResearchReport,
+} from "@/lib/deepResearch";
+import {
+  formatCents,
   formatCount,
   formatMeasure,
   formatWindow,
@@ -825,6 +832,218 @@ export function chartToCsv(spec: ChartSpec, meta?: ChartCsvMeta): string {
  * with genuinely no pin passes `undefined` and gets a name with no load in
  * it, which is at least visibly missing rather than quietly wrong.
  */
+/* ------------------------------------------------------------------ */
+/* Deep research — the whole report, in one file                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * THE REPORT AS ROWS, WITH EVERY QUALIFICATION ABOVE THEM.
+ *
+ * One long-format sheet rather than six: `section` says which part of the
+ * report a row came from — the headline, a stratum, a rate cell, a
+ * timeliness band, a side of the filing deadline, a contrast arm — so a
+ * spreadsheet can pivot the whole artifact and nothing has to be exported
+ * twice to be complete. The alternative (a file per zone) is how an
+ * analyst ends up with the strata and not the censoring, or the rates and
+ * not the intervals.
+ *
+ * FOUR RULES, and each one is a way this file could lie.
+ *
+ *   A REFUSED RATE EXPORTS AS AN EMPTY CELL, never as a zero. `evidence`
+ *     carries `not_estimable` beside it, so a reader who sorts on the rate
+ *     column cannot mistake the gap for a floor. This is the same rule the
+ *     chart CSV follows for a withheld cell, for the same reason: a
+ *     spreadsheet-shaped thing is the artifact a reader trusts without
+ *     checking.
+ *   EVERY INTERVAL TRAVELS BESIDE ITS POINT ESTIMATE. A column of expected
+ *     dollars with the bounds left in the browser is the flattering half
+ *     of this product's own answer.
+ *   MONEY IS A NUMBER, NOT A STRING. Cents become plain decimal dollars
+ *     (`centsToDollars`) because a CSV column is going to be summed; the
+ *     currency is named once, in the heading.
+ *   THE CAVEATS ARE THE PREAMBLE, INCLUDING THE CENSORING. The statements
+ *     that say which denials are in the denominator and which are counted
+ *     in neither the wins nor the losses are what make every rate below
+ *     readable, and they are the first thing in the file.
+ */
+export function researchReportToCsv(
+  report: ResearchReport,
+  meta: { runId?: string; exportedAt?: Date } = {},
+): string {
+  const headline = report.headline;
+  const preamble: string[] = [];
+  const say = (line: string): void => {
+    preamble.push(line);
+  };
+
+  say(`Revi — deep research: ${report.research_question}`);
+  say(`Population: ${populationLabel(report.population)}`);
+  say(`Data load: ${report.data_load_label} (data through ${report.data_edge_date})`);
+  if (meta.runId) say(`Run: ${meta.runId}`);
+  say(
+    `Expected recoverable: ${formatCents(headline.total_expected_cents)}, between ` +
+      `${formatCents(headline.total_expected_interval.low_cents)} and ` +
+      `${formatCents(headline.total_expected_interval.high_cents)} ` +
+      `(${headline.total_expected_interval.confidence} confidence)`,
+  );
+  say(
+    `Priced over ${formatCents(headline.priced_open_dollars_cents)} of ` +
+      `${formatCents(headline.total_open_dollars_cents)} open across ` +
+      `${headline.total_open_denials} denials; ` +
+      `${formatCents(headline.unpriced_open_dollars_cents)} could not be priced.`,
+  );
+  if (headline.range_assumes_independence) {
+    say(
+      "The range around the total is the sum of each population's own range. Populations that share payers, staffing and seasons move together, so read it as a spread rather than a guarantee.",
+    );
+  }
+  for (const statement of report.censoring.statements ?? []) say(statement);
+  for (const note of report.context_notes ?? []) say(note);
+
+  const warnings: WarningEvent[] = (report.warnings ?? []).map((warning) => ({
+    type: "warning",
+    code: warning.code,
+    message: warning.message,
+    severity: warning.severity,
+    ...(warning.count !== undefined ? { count: warning.count } : {}),
+  }));
+  const caveats = caveatLines(warnings);
+  if (caveats.length === 0) say(NO_CAVEATS_LINE);
+  for (const line of caveats) say(line);
+  say(`Exported ${(meta.exportedAt ?? new Date()).toISOString()}`);
+
+  const headers = [
+    "section",
+    "population",
+    "basis",
+    "evidence",
+    "rate",
+    "rate_ci_low",
+    "rate_ci_high",
+    "rate_confidence",
+    "denials_answered",
+    "recovered",
+    "open_denials",
+    "open_denied_usd",
+    "inside_deadline_usd",
+    "past_deadline_usd",
+    "no_limit_on_file_usd",
+    "expected_usd",
+    "expected_low_usd",
+    "expected_high_usd",
+  ];
+
+  const cellCells = (cell: ResearchRateCell | undefined): CsvValue[] => {
+    if (cell === undefined) return ["", "", "", "", "", "", "", ""];
+    const measured = cell.evidence === "measured";
+    return [
+      cell.basis,
+      cell.evidence,
+      // EMPTY, not zero: a rate the run declined to publish has no number.
+      measured ? (decimal(cell.rate) ?? "") : "",
+      measured ? (decimal(cell.interval?.low) ?? "") : "",
+      measured ? (decimal(cell.interval?.high) ?? "") : "",
+      measured ? (cell.interval?.confidence ?? "") : "",
+      cell.n,
+      cell.successes,
+    ];
+  };
+
+  const rows: CsvValue[][] = [];
+
+  rows.push([
+    "headline",
+    populationLabel(report.population),
+    report.censoring.basis,
+    "measured",
+    "",
+    "",
+    "",
+    headline.total_expected_interval.confidence,
+    report.censoring.in_denominator,
+    "",
+    headline.total_open_denials,
+    centsToDollars(headline.total_open_dollars_cents),
+    centsToDollars(headline.catchable_dollars_cents),
+    centsToDollars(headline.deadline_passed_dollars_cents),
+    centsToDollars(headline.deadline_unknown_dollars_cents),
+    centsToDollars(headline.total_expected_cents),
+    centsToDollars(headline.total_expected_interval.low_cents),
+    centsToDollars(headline.total_expected_interval.high_cents),
+  ]);
+
+  for (const stratum of [...(report.strata ?? []), ...(report.not_estimable ?? [])]) {
+    const measured = stratum.evidence === "measured";
+    rows.push([
+      "stratum",
+      stratum.label,
+      ...cellCells(stratum.rate_cell),
+      stratum.open_denials,
+      centsToDollars(stratum.open_dollars_cents),
+      centsToDollars(stratum.catchable_dollars_cents),
+      centsToDollars(stratum.deadline_passed_dollars_cents),
+      centsToDollars(stratum.deadline_unknown_dollars_cents),
+      measured ? centsToDollars(stratum.expected_cents ?? undefined) : "",
+      measured ? centsToDollars(stratum.expected_interval?.low_cents) : "",
+      measured ? centsToDollars(stratum.expected_interval?.high_cents) : "",
+    ]);
+  }
+
+  for (const cell of report.rates ?? []) {
+    rows.push(["rate", cell.label, ...cellCells(cell), "", "", "", "", "", "", "", ""]);
+  }
+
+  for (const band of report.timeliness?.bands ?? []) {
+    rows.push(["timeliness", band.band, ...cellCells(band.cell), "", "", "", "", "", "", "", ""]);
+  }
+
+  for (const row of report.deadline?.rows ?? []) {
+    rows.push([
+      "deadline",
+      `${row.position_label} / ${row.rule_label}`,
+      ...cellCells(row.cell),
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+    ]);
+  }
+
+  for (const contrast of report.contrasts ?? []) {
+    for (const [side, arm] of [
+      ["left", contrast.left],
+      ["right", contrast.right],
+    ] as const) {
+      rows.push([
+        "contrast",
+        `${contrast.title} — ${side === "left" ? "stronger" : "weaker"} side: ${arm.label}`,
+        report.censoring.basis,
+        arm.rate === null || arm.rate === undefined ? "not_estimable" : "measured",
+        decimal(arm.rate) ?? "",
+        decimal(arm.interval?.low) ?? "",
+        decimal(arm.interval?.high) ?? "",
+        arm.interval?.confidence ?? "",
+        arm.n,
+        arm.successes,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+      ]);
+    }
+  }
+
+  return buildCsv(headers, rows, preamble);
+}
+
 export function exportFilename(
   kind: string,
   tag: string | undefined,

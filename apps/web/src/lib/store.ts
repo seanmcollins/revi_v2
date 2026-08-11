@@ -9,6 +9,7 @@ import { create } from "zustand";
 
 import type { CreatePinRequest } from "@/lib/apiDriver";
 import type { LeadStatus, MonitorDeclaration, MonitorRefusal, WorklistData } from "@/lib/contract";
+import type { ResearchOffer } from "@/lib/deepResearch";
 import type { LeadState, MonitorsPin } from "@/lib/monitors";
 import { envDriverKind } from "@/lib/driver";
 import type {
@@ -127,6 +128,15 @@ export interface AnswerState {
    * rather than hoping it survives a warning list.
    */
   monitorRefused?: MonitorRefusal;
+  /**
+   * `TurnAnswer.deep_research` — this question asked for a recoverability
+   * run, and the server answered with the offer.
+   *
+   * Held on the answer rather than acted on: the card the answer renders
+   * is a launch, and pressing it starts a minute of real work at its own
+   * address. Nothing here starts a run.
+   */
+  deepResearch?: ResearchOffer;
   /**
    * The governed display-name corrections this turn's measures carry.
    * Already applied to finding titles and chart titles at the seam; kept
@@ -300,6 +310,7 @@ export function applyEventToAnswer(answer: AnswerState, event: TurnEvent): Answe
         worklist: event.worklist ?? answer.worklist,
         monitor: event.monitor ?? answer.monitor,
         monitorRefused: event.monitorRefused ?? answer.monitorRefused,
+        deepResearch: event.deepResearch ?? answer.deepResearch,
         metricDisplay: event.metricDisplay ?? answer.metricDisplay,
         status:
           event.status === "clarification_required"

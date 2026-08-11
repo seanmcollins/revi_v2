@@ -1,0 +1,597 @@
+{
+ "outcome": "answer",
+ "session_id": "sess_891dbdafcc33",
+ "investigation_id": "inv_5b5e66c3ca98",
+ "turn_class": "new_investigation",
+ "context_header": {
+  "window_start": "2026-07-01",
+  "window_end": "2026-07-31",
+  "basis": "remit",
+  "comparison_kind": null,
+  "comparison_start": null,
+  "comparison_end": null,
+  "filters": [
+   "payer is Atlas Commercial"
+  ],
+  "filter_chips": [
+   {
+    "dimension": "payer",
+    "op": "eq",
+    "values": [
+     "Atlas Commercial"
+    ],
+    "requested_values": [],
+    "origin_turn": "turn_9238396768f2",
+    "pinned": false
+   }
+  ],
+  "cohort": null,
+  "cohort_size": null,
+  "watermark_id": "wm_003",
+  "as_of": null,
+  "window_note": "some checks here use their own periods, which come with the measure rather than from your question (Feb 1, 2026 to Jul 31, 2026) — each result states the period it was computed over",
+  "display": "2026-07-01..2026-07-31 (on the remittance date) · filters: payer is Atlas Commercial · this data load · some checks here use their own periods, which come with the measure rather than from your question (Feb 1, 2026 to Jul 31, 2026) — each result states the period it was computed over"
+ },
+ "findings": [
+  {
+   "referent": "F1",
+   "title": "Total: $98,700.66 overturned denied dollars (2026-02-01..2026-07-31)",
+   "statement": "$98,700.66 overturned denied dollars over 2026-02-01..2026-07-31, across the 1 payer this answer could measure. That period comes with this measure rather than from your question.",
+   "metric_ids": [
+    "overturned_denied_dollars"
+   ],
+   "values": [
+    {
+     "name": "overturned_denied_dollars",
+     "value": 9870066.0
+    },
+    {
+     "name": "aggregate_total",
+     "value": true
+    },
+    {
+     "name": "overturned_denied_dollars__is_visible_total",
+     "value": false
+    },
+    {
+     "name": "overturned_denied_dollars__measured_cells",
+     "value": 1
+    },
+    {
+     "name": "overturned_denied_dollars__window_start",
+     "value": "2026-02-01"
+    },
+    {
+     "name": "overturned_denied_dollars__window_end",
+     "value": "2026-07-31"
+    }
+   ],
+   "grade": "direct",
+   "impact_cents": null,
+   "confidence": "high",
+   "suggested_refinements": [
+    "drill into F1"
+   ],
+   "benchmarks": [],
+   "metric_caveats": []
+  },
+  {
+   "referent": "F2",
+   "title": "Atlas Commercial: $98,700.66 overturned denied dollars (100.0% of total)",
+   "statement": "Atlas Commercial ranks #1 of 1 measured by overturned denied dollars over 2026-02-01..2026-07-31: $98,700.66 (100.0% of total). That period comes with this measure rather than from your question.",
+   "metric_ids": [
+    "overturned_denied_dollars"
+   ],
+   "values": [
+    {
+     "name": "overturned_denied_dollars",
+     "value": 9870066
+    },
+    {
+     "name": "rank",
+     "value": 1
+    },
+    {
+     "name": "share_of_total",
+     "value": 1.0
+    },
+    {
+     "name": "overturned_denied_dollars__window_start",
+     "value": "2026-02-01"
+    },
+    {
+     "name": "overturned_denied_dollars__window_end",
+     "value": "2026-07-31"
+    }
+   ],
+   "grade": "direct",
+   "impact_cents": 9870066,
+   "confidence": "high",
+   "suggested_refinements": [
+    "drill into F2"
+   ],
+   "benchmarks": [],
+   "metric_caveats": []
+  }
+ ],
+ "chart_specs": [
+  {
+   "id": "chart_overturn_by_payer",
+   "chart_type": "bar",
+   "title": "Appeal overturn rate by payer",
+   "frame_id": "overturn_by_payer",
+   "x": "payer",
+   "series": null,
+   "value": "appeal_overturn_rate",
+   "unit": "ratio",
+   "grade": "direct",
+   "rows": [
+    {
+     "x": "Atlas Commercial",
+     "series": null,
+     "value": 0.4,
+     "referent_id": "D1",
+     "is_bound": false,
+     "bound_population": null,
+     "provisional": false
+    }
+   ],
+   "annotations": [],
+   "recipe_id": "appeal_outcome_pair",
+   "sort": null,
+   "axis_order": null
+  },
+  {
+   "id": "chart_overturn_by_category",
+   "chart_type": "bar",
+   "title": "Appeal overturn rate by denial category",
+   "frame_id": "overturn_by_category",
+   "x": "denial_category",
+   "series": null,
+   "value": "appeal_overturn_rate",
+   "unit": "ratio",
+   "grade": "direct",
+   "rows": [
+    {
+     "x": "AUTH",
+     "series": null,
+     "value": null,
+     "referent_id": null,
+     "is_bound": false,
+     "bound_population": null,
+     "provisional": false
+    },
+    {
+     "x": "COB",
+     "series": null,
+     "value": 0.909091,
+     "referent_id": null,
+     "is_bound": true,
+     "bound_population": 11,
+     "provisional": false
+    },
+    {
+     "x": "CODING",
+     "series": null,
+     "value": 0.571429,
+     "referent_id": null,
+     "is_bound": false,
+     "bound_population": null,
+     "provisional": false
+    },
+    {
+     "x": "CONTRACTUAL",
+     "series": null,
+     "value": null,
+     "referent_id": null,
+     "is_bound": false,
+     "bound_population": null,
+     "provisional": false
+    },
+    {
+     "x": "DUPLICATE",
+     "series": null,
+     "value": 0.714286,
+     "referent_id": null,
+     "is_bound": true,
+     "bound_population": 14,
+     "provisional": false
+    },
+    {
+     "x": "ELIGIBILITY",
+     "series": null,
+     "value": 0.526316,
+     "referent_id": null,
+     "is_bound": true,
+     "bound_population": 19,
+     "provisional": false
+    },
+    {
+     "x": "MEDICAL_NECESSITY",
+     "series": null,
+     "value": 0.625,
+     "referent_id": null,
+     "is_bound": true,
+     "bound_population": 16,
+     "provisional": false
+    },
+    {
+     "x": "OTHER",
+     "series": null,
+     "value": 0.34375,
+     "referent_id": null,
+     "is_bound": false,
+     "bound_population": null,
+     "provisional": false
+    },
+    {
+     "x": "PATIENT_RESP",
+     "series": null,
+     "value": null,
+     "referent_id": null,
+     "is_bound": false,
+     "bound_population": null,
+     "provisional": false
+    },
+    {
+     "x": "TIMELY_FILING",
+     "series": null,
+     "value": null,
+     "referent_id": null,
+     "is_bound": false,
+     "bound_population": null,
+     "provisional": false
+    }
+   ],
+   "annotations": [
+    "upper bounds: 4 of 10 marks are ceilings, not measurements — their numerator was suppressed and they cannot be ranked against the measured marks",
+    "These marks are not ranked, whatever order they are drawn in: 4 of the 6 marks with a figure are ceilings, leaving 2 measured — too few for an order to mean anything. Putting ceilings in order beside measured figures sorts by how big each group is.",
+    "withheld: 4 of 10 groups are too small to publish at all and are drawn with no value"
+   ],
+   "recipe_id": "appeal_outcome_pair",
+   "sort": null,
+   "axis_order": null
+  },
+  {
+   "id": "chart_appeal_pipeline",
+   "chart_type": "bar",
+   "title": "Appeal volume by payer",
+   "frame_id": "appeal_pipeline",
+   "x": "payer",
+   "series": null,
+   "value": "appeal_volume",
+   "unit": "count",
+   "grade": "direct",
+   "rows": [
+    {
+     "x": "Atlas Commercial",
+     "series": null,
+     "value": 165,
+     "referent_id": "D1",
+     "is_bound": false,
+     "bound_population": null,
+     "provisional": false
+    }
+   ],
+   "annotations": [],
+   "recipe_id": null,
+   "sort": null,
+   "axis_order": null
+  },
+  {
+   "id": "chart_recovery_dollars",
+   "chart_type": "stacked_bar",
+   "title": "Overturned denied dollars by payer",
+   "frame_id": "recovery_dollars",
+   "x": "payer",
+   "series": null,
+   "value": "overturned_denied_dollars",
+   "unit": "money_cents",
+   "grade": "direct",
+   "rows": [
+    {
+     "x": "Atlas Commercial",
+     "series": null,
+     "value": 9870066,
+     "referent_id": "D1",
+     "is_bound": false,
+     "bound_population": null,
+     "provisional": false
+    }
+   ],
+   "annotations": [],
+   "recipe_id": "denial_code_mix",
+   "sort": {
+    "by": "overturned_denied_dollars",
+    "direction": "desc"
+   },
+   "axis_order": null
+  }
+ ],
+ "narrative": "You asked about appeal overturn dollar rate, and this answer publishes no finding for it. It was measured — it is on the charts and in the evidence below — and no cell of it survived selection, so nothing above speaks for it. What follows measures the other things this question read. Atlas Commercial denials account for $98,700.66 in overturned denied dollars over Feb 1–Jul 31, 2026, measured directly (F1). All of that sits with Atlas Commercial itself — 100.0% of the total, calculated from measured values (F2) — so there is no other payer inside this result to compare it against. Read that figure as dollars put back in play rather than recovered cash, and as appeal state at the latest data load (F1); denials near the edge of the window show little overturn activity simply because their appeals have not been decided yet, which means the $98,700.66 reflects what has been decided so far rather than the full outcome of the pipeline (F2). Every figure this answer publishes for the current window is measured. The comparison window is not: 4 of its cells are too small to measure exactly — fewer than 11 of the events being counted landed in each, over a population this answer publishes in full — so each shows a ceiling instead of a figure: COB (appeal overturn rate ≤ 90.9% over 11 entities); DUPLICATE (appeal overturn rate ≤ 71.4% over 14 entities); ELIGIBILITY (appeal overturn rate ≤ 52.6% over 19 entities); MEDICAL_NECESSITY (appeal overturn rate ≤ 62.5% over 16 entities). The true value is at or below the ceiling and is not a measurement. A further 4 could not be published at all.",
+ "warnings": [
+  "window_assumed: the question named no period, so I used 2026-07-01..2026-07-31 on the remit basis — the last full month this load can see (newest data date 2026-08-02).",
+  "population_caveat: appeal volume — appeals on recent denials have not been filed yet, so a window near the data edge understates the pipeline. Your data records no appeal filing date, so an appeal is dated by the denial it answers, never by when the work happened.",
+  "population_caveat: appeals pending pct — it is the whole story near the data edge — a recently filed appeal is legitimately pending, so trailing windows read high by construction; the signal is a rising pending share on OLDER denials, which is payer stalling or an appeal backlog rather than normal turnaround. Your data records no appeal filing date, so the AGE of the pipeline cannot be computed — only the pending share.",
+  "population_caveat: denials unworked pct — recent denials legitimately show NONE before an appeal is filed, so a window near the data edge overstates abandonment.",
+  "population_caveat: denials unworked dollar pct — recent denials legitimately show no appeal yet, so a window near the data edge overstates abandonment.",
+  "population_caveat: overturned denied dollars — these are dollars put back in play, never recovered cash, and appeal state is as of the latest data load — recent denials show little overturn activity simply because their appeals have not been decided yet.",
+  "suppression: cells counting fewer than 11 records in their population are withheld entirely before any result leaves this platform. A cell whose population is larger but whose numerator is under 11 keeps its place and is published as an upper bound, never dropped.",
+  "transform 'compare' skipped: the question carries no comparison window",
+  "subject_unpublished: you asked about appeal overturn dollar rate, and this answer publishes no finding for it. It was measured — it is on the charts and in the evidence below — and no cell of it survived selection, so nothing above speaks for it. What follows measures the other things this question read.",
+  "probe_families_empty: 2 metric famil(ies) on this plan were read and produced no published finding, so nothing above speaks for them: appeal_overturn_dollar_rate, appeal_overturn_rate (overturn_by_payer, overturn_by_category, 11 row(s)); appeal_volume, appeals_pending_pct, denials_unworked_dollar_pct, denials_unworked_pct (appeal_pipeline, 1 row(s)). The findings rank within the families that did publish — they are not a cross-family comparison, and a family's absence is not evidence that it is fine.",
+  "suppression_bounded: every figure this answer publishes for the current window is measured. The comparison window is not: 4 of its cells are too small to measure exactly — fewer than 11 of the events being counted landed in each, over a population this answer publishes in full — so each shows a ceiling instead of a figure: COB (appeal overturn rate ≤ 90.9% over 11 entities); DUPLICATE (appeal overturn rate ≤ 71.4% over 14 entities); ELIGIBILITY (appeal overturn rate ≤ 52.6% over 19 entities); MEDICAL_NECESSITY (appeal overturn rate ≤ 62.5% over 16 entities). The true value is at or below the ceiling and is not a measurement. A further 4 could not be published at all."
+ ],
+ "warnings_v2": [
+  {
+   "code": "WINDOW_ASSUMED",
+   "severity": "caution",
+   "message": "window_assumed: the question named no period, so I used 2026-07-01..2026-07-31 on the remit basis — the last full month this load can see (newest data date 2026-08-02).",
+   "count": 1
+  },
+  {
+   "code": "POPULATION_CAVEAT",
+   "severity": "caution",
+   "message": "population_caveat: appeal volume — appeals on recent denials have not been filed yet, so a window near the data edge understates the pipeline. Your data records no appeal filing date, so an appeal is dated by the denial it answers, never by when the work happened.",
+   "count": 1
+  },
+  {
+   "code": "POPULATION_CAVEAT",
+   "severity": "caution",
+   "message": "population_caveat: appeals pending pct — it is the whole story near the data edge — a recently filed appeal is legitimately pending, so trailing windows read high by construction; the signal is a rising pending share on OLDER denials, which is payer stalling or an appeal backlog rather than normal turnaround. Your data records no appeal filing date, so the AGE of the pipeline cannot be computed — only the pending share.",
+   "count": 1
+  },
+  {
+   "code": "POPULATION_CAVEAT",
+   "severity": "caution",
+   "message": "population_caveat: denials unworked pct — recent denials legitimately show NONE before an appeal is filed, so a window near the data edge overstates abandonment.",
+   "count": 1
+  },
+  {
+   "code": "POPULATION_CAVEAT",
+   "severity": "caution",
+   "message": "population_caveat: denials unworked dollar pct — recent denials legitimately show no appeal yet, so a window near the data edge overstates abandonment.",
+   "count": 1
+  },
+  {
+   "code": "POPULATION_CAVEAT",
+   "severity": "caution",
+   "message": "population_caveat: overturned denied dollars — these are dollars put back in play, never recovered cash, and appeal state is as of the latest data load — recent denials show little overturn activity simply because their appeals have not been decided yet.",
+   "count": 1
+  },
+  {
+   "code": "SUPPRESSION_APPLIED",
+   "severity": "info",
+   "message": "suppression: cells counting fewer than 11 records in their population are withheld entirely before any result leaves this platform. A cell whose population is larger but whose numerator is under 11 keeps its place and is published as an upper bound, never dropped.",
+   "count": 1
+  },
+  {
+   "code": "TRANSFORM_SKIPPED",
+   "severity": "info",
+   "message": "transform 'compare' skipped: the question carries no comparison window",
+   "count": 1
+  },
+  {
+   "code": "SUBJECT_UNPUBLISHED",
+   "severity": "caution",
+   "message": "subject_unpublished: you asked about appeal overturn dollar rate, and this answer publishes no finding for it. It was measured — it is on the charts and in the evidence below — and no cell of it survived selection, so nothing above speaks for it. What follows measures the other things this question read.",
+   "count": 1
+  },
+  {
+   "code": "PROBE_FAMILIES_EMPTY",
+   "severity": "caution",
+   "message": "probe_families_empty: 2 metric famil(ies) on this plan were read and produced no published finding, so nothing above speaks for them: appeal_overturn_dollar_rate, appeal_overturn_rate (overturn_by_payer, overturn_by_category, 11 row(s)); appeal_volume, appeals_pending_pct, denials_unworked_dollar_pct, denials_unworked_pct (appeal_pipeline, 1 row(s)). The findings rank within the families that did publish — they are not a cross-family comparison, and a family's absence is not evidence that it is fine.",
+   "count": 1
+  },
+  {
+   "code": "SUPPRESSION_BOUNDED",
+   "severity": "caution",
+   "message": "suppression_bounded: every figure this answer publishes for the current window is measured. The comparison window is not: 4 of its cells are too small to measure exactly — fewer than 11 of the events being counted landed in each, over a population this answer publishes in full — so each shows a ceiling instead of a figure: COB (appeal overturn rate ≤ 90.9% over 11 entities); DUPLICATE (appeal overturn rate ≤ 71.4% over 14 entities); ELIGIBILITY (appeal overturn rate ≤ 52.6% over 19 entities); MEDICAL_NECESSITY (appeal overturn rate ≤ 62.5% over 16 entities). The true value is at or below the ceiling and is not a measurement. A further 4 could not be published at all.",
+   "count": 1
+  }
+ ],
+ "meta_answer": null,
+ "definitional": null,
+ "referents": [
+  {
+   "id": "F1",
+   "kind": "finding",
+   "label": "Total: $98,700.66 overturned denied dollars (2026-02-01..2026-07-31)"
+  },
+  {
+   "id": "F2",
+   "kind": "finding",
+   "label": "Atlas Commercial: $98,700.66 overturned denied dollars (100.0% of total)"
+  },
+  {
+   "id": "D1",
+   "kind": "dimension_value",
+   "label": "Atlas Commercial"
+  }
+ ],
+ "cohort": null,
+ "metric_display": [],
+ "anomaly_reconciliation": null,
+ "benchmarks": [],
+ "worklist": null,
+ "monitor": null,
+ "monitor_refused": null,
+ "reconciliation": "status=not_applicable; this is the first question in this thread; there is no earlier answer to reconcile against",
+ "plan_hash": "a1d9c7a7dd29fc3c16fb01ca366df87176d344023ae289ebd2551fa6f73a391b",
+ "watermark_stale": false,
+ "usage": {
+  "llm_calls": 2,
+  "cost_usd": "0.178336000000000005",
+  "input_tokens": 15700,
+  "output_tokens": 1749,
+  "cache_read_tokens": 3358,
+  "cache_creation_tokens": 12338,
+  "schema_retries": 0
+ },
+ "evidence": {
+  "probes": [
+   {
+    "id": "overturn_by_payer",
+    "hash": "d25bec3ebaa3335200175710c9370a5cfbc1dd6fbc9f41075dc13c80b5bce2bd",
+    "purpose": "Overturn rate per payer, counted and dollar-weighted. Both divide by DECIDED appeals only, so pending appeals never dilute them.",
+    "kind": "aggregation",
+    "metrics": [
+     {
+      "id": "appeal_overturn_rate",
+      "contract_version": 1
+     },
+     {
+      "id": "appeal_overturn_dollar_rate",
+      "contract_version": 1
+     }
+    ],
+    "cache_hit": false,
+    "rows": 1,
+    "limit": 12,
+    "truncated": false,
+    "suppressed_cells": 0,
+    "grade": "direct",
+    "duration_ms": 37
+   },
+   {
+    "id": "overturn_by_category",
+    "hash": "8b0fbdf939fd56e5a8b091e37298d3e0eec2efd28dfcc9ef24977b56b5c102c0",
+    "purpose": "Where appeals win by root-cause category — the input to \"appeal more of this, prevent more of that\".",
+    "kind": "aggregation",
+    "metrics": [
+     {
+      "id": "appeal_overturn_rate",
+      "contract_version": 1
+     },
+     {
+      "id": "appeal_overturn_dollar_rate",
+      "contract_version": 1
+     }
+    ],
+    "cache_hit": false,
+    "rows": 10,
+    "limit": null,
+    "truncated": false,
+    "suppressed_cells": 20,
+    "grade": "direct",
+    "duration_ms": 28
+   },
+   {
+    "id": "appeal_pipeline",
+    "hash": "ffeaf94d7057148a845b787944ec794e46d70953f002a77c5949b2e2624e49e9",
+    "purpose": "Pipeline size and two different failures side by side: pending share is filed work awaiting a payer decision (denominator is filed appeals), unworked share is denials never touched at all (denominator is workable denials), given both counted and dollar-weighted because the money left on the table is rarely proportional to the records left alone. Recent populations read high on both shares by construction.",
+    "kind": "aggregation",
+    "metrics": [
+     {
+      "id": "appeal_volume",
+      "contract_version": 1
+     },
+     {
+      "id": "appeals_pending_pct",
+      "contract_version": 1
+     },
+     {
+      "id": "denials_unworked_pct",
+      "contract_version": 2
+     },
+     {
+      "id": "denials_unworked_dollar_pct",
+      "contract_version": 1
+     }
+    ],
+    "cache_hit": false,
+    "rows": 1,
+    "limit": null,
+    "truncated": false,
+    "suppressed_cells": 0,
+    "grade": "direct",
+    "duration_ms": 25
+   },
+   {
+    "id": "recovery_dollars",
+    "hash": "c931681d37fa9f179783109b1cd6951728b862e132f56f8d0c5b8cd06b7933ee",
+    "purpose": "Dollars whose denial was reversed against total denied dollars. Overturned dollars are an upper bound on recovery, not posted cash — no stored linkage ties an appeal outcome to a later payment.",
+    "kind": "aggregation",
+    "metrics": [
+     {
+      "id": "overturned_denied_dollars",
+      "contract_version": 1
+     },
+     {
+      "id": "denied_dollars",
+      "contract_version": 2
+     }
+    ],
+    "cache_hit": false,
+    "rows": 1,
+    "limit": 12,
+    "truncated": false,
+    "suppressed_cells": 0,
+    "grade": "direct",
+    "duration_ms": 21
+   }
+  ],
+  "reconciliation": {
+   "status": "not_applicable",
+   "detail": "this is the first question in this thread; there is no earlier answer to reconcile against",
+   "summary": "status=not_applicable; this is the first question in this thread; there is no earlier answer to reconcile against"
+  },
+  "warehouse_queries": 4,
+  "cache_hits": 0,
+  "zero_probe_turn": false,
+  "answer_grade": "direct"
+ },
+ "metric": {
+  "primary": null,
+  "metrics": [
+   {
+    "id": "appeal_overturn_rate",
+    "contract_version": 1
+   },
+   {
+    "id": "appeal_overturn_dollar_rate",
+    "contract_version": 1
+   },
+   {
+    "id": "appeal_volume",
+    "contract_version": 1
+   },
+   {
+    "id": "appeals_pending_pct",
+    "contract_version": 1
+   },
+   {
+    "id": "denials_unworked_pct",
+    "contract_version": 2
+   },
+   {
+    "id": "denials_unworked_dollar_pct",
+    "contract_version": 1
+   },
+   {
+    "id": "overturned_denied_dollars",
+    "contract_version": 1
+   },
+   {
+    "id": "denied_dollars",
+    "contract_version": 2
+   }
+  ],
+  "playbook_id": "appeals_effectiveness",
+  "pack_id": "base-rcm",
+  "pack_version": "1.0.0",
+  "pack_snapshot_id": "0263f01a696a2227defc4e60c904fbfdb51bf95fc7057c8bf0cc7277ac8ac243"
+ },
+ "debug": null,
+ "deep_research": {
+  "population": {
+   "kind": "payer",
+   "values": [
+    "Atlas Commercial"
+   ],
+   "label": "denials from Atlas Commercial"
+  },
+  "label": "Run deep research",
+  "description": "Measure what is realistically recoverable out of denials from Atlas Commercial, on your own history, and write it up."
+ }
+}
