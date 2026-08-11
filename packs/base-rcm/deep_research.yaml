@@ -193,3 +193,50 @@ copy:
   deadline_unknown: >-
     These plans carry no filing limit on file. That is not evidence the
     claim is still filable, so these dollars are shown on their own line.
+
+# ---------------------------------------------------------------------------
+# GENERALIZED RESEARCH. Deep research answers any research question, not only
+# the recoverability one — so the loop that chooses what to check next needs
+# its own decisions stated where they can be inspected and changed, exactly
+# as the estimation floors above are.
+#
+# These are judgements about how an investigation should be conducted, not
+# facts about arithmetic. A round budget is how much work one question is
+# worth; a chase level is how big a gap has to be before it is worth going
+# inside. Both belong to whoever owns the analysis, not to a library.
+# ---------------------------------------------------------------------------
+research:
+  # How many rounds of read-and-decide one run may take. Budgets scale with
+  # the question's composition depth up to this ceiling: a question that is
+  # a trend, a cause and an action in one sentence earns more rounds than
+  # "what is our denial rate". A budget that binds before an answerable
+  # question resolves is a defect, and the report says when it bound.
+  max_rounds: 4
+
+  # How far back a run reads when the question named no period. Long enough
+  # for a movement to have a shape, short enough that the window is the
+  # recent business rather than its history.
+  window_months: 12
+
+  # When a difference between two groups is worth going inside. A gap whose
+  # range still contains "no difference" is not a lead, whatever its point
+  # value; this is the conventional level, stated here rather than assumed
+  # inside the code that applies it.
+  chase_p_value: "0.05"
+
+  # For measures that are not rates — dollars, days — there is no test, so
+  # the lead is the spread itself. A breakdown whose largest group is at
+  # least this many times its smallest is worth cutting inside. Below it the
+  # difference is not big enough to spend a round on.
+  chase_spread_ratio: "1.5"
+
+  # How many groups a breakdown needs before its spread means anything. Two
+  # groups always have a widest and a narrowest.
+  min_groups_for_spread: 3
+
+  # How many groups a breakdown may have before it stops being readable, and
+  # how few before it stops being a breakdown. A two-value cut separates
+  # almost nothing; past the ceiling the reading is spent on cells too thin
+  # to publish.
+  min_groups_per_cut: 3
+  max_groups_per_cut: 20

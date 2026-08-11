@@ -143,6 +143,75 @@ class BenchmarkSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class ConceptBinding:
+    """One declared way a concept is expressed in this warehouse (§5.5).
+
+    The pack's authored ``rationale`` is deliberately NOT carried. It is
+    operator prose — written for whoever maintains the pack, in the pack's
+    own vocabulary — and every field this seam carries is one a payload can
+    reach. What a reader is owed about a path choice is the coverage figure
+    that decided it, which this seam does carry.
+
+    ``binding_strength`` answers "how good is THIS field as evidence for
+    THAT concept" and needs both halves in hand. A planner orienting on a
+    question has only the concept — it is asking which fields exist at all
+    — so the fan-out has to be readable in the other direction, and the
+    strength has to travel with each candidate rather than be fetched one
+    lookup at a time against a list nobody could enumerate.
+    """
+
+    concept_id: str
+    field_id: str
+    #: ``proposed`` | ``observed`` | ``validated`` | ``certified``. Never
+    #: ``deprecated`` — a retired binding is not a path and is not returned.
+    state: str
+    strength: EvidenceGrade
+
+
+@dataclass(frozen=True, slots=True)
+class KnowledgeEntry:
+    """One governed knowledge card, as QUOTABLE CONTEXT.
+
+    The constitution is exact about what this is for: the pack's RCM
+    knowledge is "consulted, quotable as context, never a source of
+    numbers". So this shape carries prose and provenance and nothing that
+    could be mistaken for a measurement — no figures a caller could lift
+    into a finding, no benchmark ranges (those travel as
+    :class:`BenchmarkSpec`, which knows its own cohort and cautions).
+
+    ``review_status`` is on the shape because it is on the content: every
+    card in KB wave 1 is ``machine_researched``, and a consumer that let
+    one reach a reader as settled fact would be asserting more than the
+    pack does.
+    """
+
+    id: str
+    title: str
+    domains: tuple[str, ...]
+    aliases: tuple[str, ...]
+    summary: str
+    key_points: tuple[str, ...]
+    cautions: tuple[str, ...]
+    review_status: str
+    source_titles: tuple[str, ...] = ()
+
+    @property
+    def lookup_terms(self) -> frozenset[str]:
+        """Normalized terms that should match this card.
+
+        Id, title and aliases, lowercased with punctuation flattened — the
+        same shape the pack's own alias index uses, recomputed here because
+        the port may not import the pack's normalizer.
+        """
+        terms = {self.id, self.title, *self.aliases, *self.domains}
+        return frozenset(
+            " ".join(term.replace("_", " ").replace(".", " ").lower().split())
+            for term in terms
+            if term
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class ConclusionPolicySpec:
     id: str
     required_grade: EvidenceGrade
@@ -220,6 +289,29 @@ class PackPort(Protocol):
         assertion about coverage, not the coverage itself. Grading therefore
         has to be asked per concept — a field-only lookup would either
         downgrade honest denial analysis or launder COB guesswork.
+        """
+        ...
+
+    def concept_bindings(self, concept_id: str) -> tuple[ConceptBinding, ...]:
+        """Every live binding declared FOR a concept, strongest first.
+
+        The read direction :meth:`binding_strength` cannot serve. Discovery
+        asks "which certified paths could express COB here" before it knows
+        any field name, and the answer is the pack's whole fan-out — which
+        the engine then checks against the catalog and the data, because a
+        certified binding onto a column nobody populates is a declaration,
+        not a path.
+        """
+        ...
+
+    def knowledge_entries(self) -> tuple[KnowledgeEntry, ...]:
+        """The pack's governed RCM knowledge, for consultation only.
+
+        Returned whole and matched in the application layer: at this scale
+        the corpus is a few dozen cards, so governed retrieval is alias and
+        domain matching over content the pack already indexes — no
+        embeddings, no similarity model, nothing that could route a
+        question somewhere no one can audit.
         """
         ...
 

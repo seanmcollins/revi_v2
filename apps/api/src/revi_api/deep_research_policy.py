@@ -31,6 +31,7 @@ from revi_investigation.application.deep_research.policy import (
     AngleCopy,
     BandSpec,
     DeepResearchSettings,
+    ResearchPolicy,
 )
 
 DEEP_RESEARCH_FILENAME = "deep_research.yaml"
@@ -100,6 +101,19 @@ def load_deep_research_settings(path: str | Path) -> DeepResearchSettings:
                     str(key): _text(value) for key, value in node.items()
                 }
 
+    research_raw = document.get("research") or {}
+    if not isinstance(research_raw, dict):
+        raise ValueError(f"{path}: 'research' must be a mapping")
+    research = ResearchPolicy(
+        max_rounds=int(research_raw.get("max_rounds", 4)),
+        window_months=int(research_raw.get("window_months", 12)),
+        chase_p_value=Decimal(str(research_raw.get("chase_p_value", "0.05"))),
+        chase_spread_ratio=Decimal(str(research_raw.get("chase_spread_ratio", "1.5"))),
+        min_groups_for_spread=int(research_raw.get("min_groups_for_spread", 3)),
+        min_groups_per_cut=int(research_raw.get("min_groups_per_cut", 3)),
+        max_groups_per_cut=int(research_raw.get("max_groups_per_cut", 20)),
+    )
+
     earliest = population.get("earliest_service_date")
     if isinstance(earliest, date):
         earliest_date = earliest
@@ -135,6 +149,7 @@ def load_deep_research_settings(path: str | Path) -> DeepResearchSettings:
         copy={
             str(key): _text(value) for key, value in (document.get("copy") or {}).items()
         },
+        research=research,
         content_hash=hashlib.sha256(raw.encode("utf-8")).hexdigest(),
     )
 

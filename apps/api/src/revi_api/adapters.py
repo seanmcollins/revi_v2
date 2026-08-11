@@ -29,7 +29,9 @@ from revi_calculation.operators.reconcile import ReconciliationStatus
 from revi_calculation_contracts.contract import MetricContract
 from revi_investigation.application.capability_ports import (
     BenchmarkSpec,
+    ConceptBinding,
     ConclusionPolicySpec,
+    KnowledgeEntry,
     PlaybookSpec,
     ProbeTemplateSpec,
     ReconcileVerdict,
@@ -223,6 +225,40 @@ class PackSnapshotPort:
             ):
                 return binding.strength
         return None
+
+    def concept_bindings(self, concept_id: str) -> tuple[ConceptBinding, ...]:
+        return tuple(
+            sorted(
+                (
+                    ConceptBinding(
+                        concept_id=binding.concept_id,
+                        field_id=binding.dimension_or_measure_id,
+                        state=binding.state.value,
+                        strength=binding.strength,
+                    )
+                    for binding in self._snapshot.bindings
+                    if binding.concept_id == concept_id
+                    and binding.state is not BindingState.DEPRECATED
+                ),
+                key=lambda binding: (-binding.strength.strength, binding.field_id),
+            )
+        )
+
+    def knowledge_entries(self) -> tuple[KnowledgeEntry, ...]:
+        return tuple(
+            KnowledgeEntry(
+                id=card.id,
+                title=card.title,
+                domains=card.domains,
+                aliases=card.aliases,
+                summary=" ".join(card.summary.split()),
+                key_points=tuple(" ".join(point.split()) for point in card.key_points),
+                cautions=tuple(" ".join(caution.split()) for caution in card.cautions),
+                review_status=card.review_status.value,
+                source_titles=tuple(source.title for source in card.sources),
+            )
+            for card in sorted(self._snapshot.knowledge_cards, key=lambda card: card.id)
+        )
 
 
 class CalculationTransforms:

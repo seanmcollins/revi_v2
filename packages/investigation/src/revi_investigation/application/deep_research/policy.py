@@ -69,6 +69,47 @@ class AngleCopy:
 
 
 @dataclass(frozen=True, slots=True)
+class ResearchPolicy:
+    """How the generalized loop conducts an investigation.
+
+    Every field here is a judgement about *how much work a question is
+    worth* and *how big a difference has to be before it is worth chasing*.
+    Neither is a fact about arithmetic, so neither is decided in code: a
+    chase level chosen inside a library is an analysis policy nobody can
+    inspect, which is the same mistake a suppression floor chosen inside a
+    library would be.
+    """
+
+    #: The ceiling on read-and-decide rounds. Budgets scale with the
+    #: question's composition depth up to this.
+    max_rounds: int = 4
+    #: How far back a run reads when the question named no period.
+    window_months: int = 12
+    #: A gap whose range still contains "no difference" is not a lead.
+    chase_p_value: Decimal = Decimal("0.05")
+    #: For measures that are not rates there is no test, so the lead is the
+    #: spread: largest group over smallest, at or above this ratio.
+    chase_spread_ratio: Decimal = Decimal("1.5")
+    #: How many groups a breakdown needs before its spread means anything.
+    min_groups_for_spread: int = 3
+    #: The readable range for a breakdown this loop may choose on its own.
+    min_groups_per_cut: int = 3
+    max_groups_per_cut: int = 20
+
+    def __post_init__(self) -> None:
+        if self.max_rounds < 1:
+            raise ValueError("a research run must be allowed at least one round")
+        if self.window_months < 1:
+            raise ValueError("a research window must be at least one month")
+        if not (Decimal(0) < self.chase_p_value < Decimal(1)):
+            raise ValueError("the chase level must lie strictly between 0 and 1")
+        if self.chase_spread_ratio <= Decimal(1):
+            raise ValueError("a spread ratio at or below 1 would chase every breakdown")
+        if self.min_groups_per_cut > self.max_groups_per_cut:
+            raise ValueError("the smallest readable breakdown must not exceed the largest")
+
+
+@dataclass(frozen=True, slots=True)
 class DeepResearchSettings:
     """The governed content one run is executed under.
 
@@ -109,6 +150,9 @@ class DeepResearchSettings:
     class_context: Mapping[str, str] = field(default_factory=dict)
     angle_copy: Mapping[str, AngleCopy] = field(default_factory=dict)
     copy: Mapping[str, str] = field(default_factory=dict)
+    #: How the generalized loop conducts itself. Defaulted so the recovery
+    #: mode's own content, which predates it, keeps loading unchanged.
+    research: ResearchPolicy = field(default_factory=ResearchPolicy)
     content_hash: str = ""
 
     def __post_init__(self) -> None:
