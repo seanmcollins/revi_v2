@@ -893,9 +893,23 @@ export function researchReportToCsv(
       `${headline.total_open_denials} denials; ` +
       `${formatCents(headline.unpriced_open_dollars_cents)} could not be priced.`,
   );
-  if (headline.range_assumes_independence) {
+  if (headline.unpriced_position_dollars_cents > 0) {
     say(
-      "The range around the total is the sum of each population's own range. Populations that share payers, staffing and seasons move together, so read it as a spread rather than a guarantee.",
+      `A further ${formatCents(headline.unpriced_position_dollars_cents)} sits on a side of the filing deadline too few answered denials have reached for a rate to be published.`,
+    );
+  }
+  // HOW THE HEADLINE WAS BUILT. An export whose reader can see the figure
+  // but not its construction cannot check it against the rows below, which
+  // is the whole reason the export carries the rows.
+  if (headline.construction !== "") say(headline.construction);
+  if (headline.range_is_summed_endpoints) {
+    say(
+      "The range around the total is the sum of each population's own range — the widest way to add ranges up — so read it as a spread rather than a guarantee.",
+    );
+  }
+  if (headline.amounts_treated_as_known) {
+    say(
+      "The range moves with the recovery rate only. The denied amounts, and the share of a denied dollar a win returns, are treated as known, so the true spread is wider than the one shown.",
     );
   }
   for (const statement of report.censoring.statements ?? []) say(statement);

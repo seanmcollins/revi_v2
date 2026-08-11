@@ -182,6 +182,14 @@ async def compose_determination(
     admitted, so a sentence lifting an industry benchmark out of one fails
     grounding and is dropped like any other ungrounded claim.
 
+    ONE THING THE FACT SET SEES THAT THE COMPOSER DOES NOT: the ranges.
+    The readings go into ``build_determination_facts`` carrying the
+    confidence interval under every figure, which is what lets the
+    validator refuse a claim whose numbers are all certified and whose
+    DIRECTION is not — six monthly rates inside overlapping intervals
+    narrated as a decline, a best and a worst named 1.1 points apart. The
+    composer is not asked to police itself about this; it is checked.
+
     Returns ``(text, composed, redactions)``. ``composed`` is ``False`` when
     the model produced nothing publishable, in which case the disclosures
     stand alone and the report says so rather than presenting an empty
@@ -218,6 +226,12 @@ async def compose_determination(
         caveats=caveats,
         disclosures=[*disclosures, *trailing],
         knowledge=draft.knowledge_context,
+        # The readings themselves, for the ranges under their figures. A
+        # determination may cite a figure only if a finding certifies it;
+        # it may call the movement between two of them a DIRECTION only if
+        # the ranges around them say so. The second check needs the
+        # intervals, and this is where they are.
+        readings=report.readings,
         metric_display=dict(metric_display or {}),
         published_cautions=published_cautions,
         question=report.research_question,

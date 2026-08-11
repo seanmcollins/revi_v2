@@ -10,7 +10,7 @@ part of a recoverability estimate that is usually wrong, and its module
 docstring is the argument for the two this package will publish.
 """
 
-from revi_statistics.composition import expected_recovery
+from revi_statistics.composition import deadline_rates, expected_recovery, severity_ratios
 from revi_statistics.contrasts import (
     compare_cohorts,
     compare_rate_cells,
@@ -38,6 +38,7 @@ __all__ = [
     "compare_cohorts",
     "compare_rate_cells",
     "contrast_counts",
+    "deadline_rates",
     "delay_effect_curve",
     "denominator_rows",
     "estimate_durations",
@@ -52,6 +53,7 @@ __all__ = [
     "normal_quantile",
     "proportion",
     "quantile",
+    "severity_ratios",
     "stratum_key",
     "two_proportion_z",
     "two_sided_p_from_z",

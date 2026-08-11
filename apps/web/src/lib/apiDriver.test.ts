@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   ApiDriver,
+  cancelDeepResearch,
   fetchCapabilities,
   fetchHealth,
   fetchHealthDetail,
@@ -1115,6 +1116,78 @@ describe("GET endpoint fetchers", () => {
       expect.arrayContaining(["sessions[1].title"]),
       "GET /v1/sessions",
     );
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* The one write on a run: stopping it                                 */
+/* ------------------------------------------------------------------ */
+
+describe("cancelDeepResearch", () => {
+  const STOPPED_WIRE = {
+    id: "dr_1",
+    session_id: "sess_1",
+    status: "cancelled",
+    created_at: "2026-08-11T02:37:15Z",
+    population: { kind: "all_open", values: [], label: "every open denial" },
+    data_load_label: "the load through Aug 2, 2026",
+    research_question: "",
+    progress: {
+      phase: "execute",
+      angle_index: 3,
+      angle_total: 8,
+      message: "Comparing payers",
+      elapsed_ms: 9_100,
+      round_index: 0,
+      round_total: 1,
+    },
+    error: "This run was stopped on request, so nothing was published.",
+  };
+
+  it("posts to the run's own cancel address and reads back the run it stopped", async () => {
+    const { fetchImpl, calls } = scriptedFetch(() => fakeResponse({ json: STOPPED_WIRE }));
+    const run = await cancelDeepResearch("dr_1", {
+      baseUrl: "http://api.test",
+      fetchImpl,
+    });
+
+    // POST, not DELETE: the run is ended, not removed — its record stays
+    // at this same address saying it was stopped and how far it got.
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.url).toBe("http://api.test/v1/deep-research/dr_1/cancel");
+    expect(run.status).toBe("cancelled");
+    expect(run.progress.angle_index).toBe(3);
+    expect(run.error).toContain("nothing was published");
+  });
+
+  it("refuses a run it cannot read rather than reporting a stop that may not have happened", async () => {
+    const onDrift = vi.fn();
+    const { fetchImpl } = scriptedFetch(() =>
+      fakeResponse({ json: { ...STOPPED_WIRE, status: "who knows" } }),
+    );
+    await expect(
+      cancelDeepResearch("dr_1", { baseUrl: "http://api.test", fetchImpl, onDrift }),
+    ).rejects.toThrow(/does not name it/);
+    expect(onDrift).toHaveBeenCalledWith(
+      expect.arrayContaining(["status"]),
+      "POST /v1/deep-research/dr_1/cancel",
+    );
+  });
+
+  it("carries the server's refusal through when the run is not this tenant's", async () => {
+    const { fetchImpl } = scriptedFetch(() =>
+      fakeResponse({
+        status: 404,
+        json: {
+          code: "referent_not_found",
+          message: "no deep research run 'dr_1'",
+          correlation_id: "req_9",
+        },
+      }),
+    );
+    await expect(
+      cancelDeepResearch("dr_1", { baseUrl: "http://api.test", fetchImpl }),
+    ).rejects.toThrow(/no deep research run/);
   });
 });
 

@@ -251,8 +251,18 @@ def _normalized(angle: ResearchAngle) -> ResearchAngle | None:
             return None
         return replace(angle, stratify_by=strata, within=())
     if family is AngleFamily.EXPECTED_RECOVERY:
-        strata = angle.stratify_by[:MAX_STRATIFIERS]
-        if not strata:
+        # The kind of denial is not optional in a pricing cut. The rate is
+        # measured on denials somebody chose to work, and staff work what
+        # wins, so the answered set is heavy in the classes that come back
+        # and the open inventory is heavy in the ones that do not. Pricing
+        # the whole of a payer's open book at that payer's blended rate
+        # transfers the winning classes' rate onto the losing classes'
+        # dollars — the largest selection effect in this analysis, and the
+        # one the cut removes. So recovery class is always in the cut, and
+        # is the part that survives when the plan asks for too many.
+        asked = tuple(s for s in angle.stratify_by if s is not Stratum.RECOVERY_CLASS)
+        strata = (*asked[: MAX_STRATIFIERS - 1], Stratum.RECOVERY_CLASS)
+        if strata == (Stratum.RECOVERY_CLASS,) and not angle.stratify_by:
             strata = (Stratum.PAYER, Stratum.RECOVERY_CLASS)
         # Pricing is always over the answered-denial rate: a pursuit rate
         # answers "do we work these", not "what do we win", and applying it

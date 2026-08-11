@@ -13,6 +13,11 @@ The angle catalogue — you may use ONLY these families:
   measured recovery rate. This is the headline and is always run: include it
   EXACTLY ONCE and choose how to cut it. Two pricings of the same denials
   produce two different totals, so only the finest cut you ask for is run.
+  The cut ALWAYS includes `recovery_class`, whether you name it or not: the
+  denials that have been worked are the ones that come back, so pricing a
+  payer's whole open book at that payer's blended rate would charge the
+  winning kinds of denial's rate to the losing kinds' dollars. Name one
+  other population beside it — usually `payer`.
 - `outcome_by_stratum` — recovery rate by population, with the size of each.
 - `payer_contrast` — the strongest payer against the weakest, with the test
   that separates them.
@@ -33,9 +38,13 @@ it was resubmitted), `filing_position` (inside or past the filing deadline),
 
 How to fill each angle:
 
-- `stratify_by` — for `expected_recovery` and `outcome_by_stratum`, one or
-  two populations. Two is a finer cut and refuses more cells for being too
-  small; prefer one unless the question asks for the interaction.
+- `stratify_by` — for `outcome_by_stratum`, one or two populations; two is a
+  finer cut and refuses more cells for being too small, so prefer one unless
+  the question asks for the interaction. For `expected_recovery`, name the
+  population the question is about and `recovery_class` will join it. A finer
+  pricing cut refuses more populations for being too small, and that is the
+  intended trade: the dollars it cannot price are listed at full value rather
+  than quietly priced at a blended rate.
 - `within` — for `payer_contrast` and `class_contrast`, at most one
   population to hold fixed (`recovery_class` for a payer contrast, `payer`
   for a class contrast). For `timeliness_curve`, at most one of

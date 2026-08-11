@@ -540,13 +540,27 @@ def build_components(
     # run is a MODE of investigation, not a parallel system, and wiring it
     # its own anything is how the two would start disagreeing about what a
     # measure means.
+    #
+    # …and the same MATURITY GUARD, for exactly that reason. A study that
+    # read a rate by month to the edge of the data published "fell to 0.0%"
+    # with no caveat of any kind, while the same question asked
+    # conversationally came back with the share of the month that had
+    # settled: one honesty machine, wired into both surfaces, or the answer
+    # a reader gets depends on which surface they asked on.
     research_loop = GeneralizedResearchLoop(
         ResearchOrienter(
             DiscoveryService(repository, stores.cache, catalog, pack_port),
             catalog,
             pack_port,
         ),
-        MeasureAngleRunner(repository, stores.cache, catalog, pack_port, transforms),
+        MeasureAngleRunner(
+            repository,
+            stores.cache,
+            catalog,
+            pack_port,
+            transforms,
+            WindowMaturityService(repository, pack_port),
+        ),
         planner=LlmGeneralPlanner(llm),
     )
     metric_display: MetricDisplayRules = load_metric_display(pack_dir / "metric_display.yaml")

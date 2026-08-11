@@ -6,6 +6,12 @@ numbers (finding values plus header figures), the referent handles a claim
 may cite, the closed name vocabulary, and date tokens. The validator in
 ``revi_presentation`` consumes exactly this; the composition call site
 builds it from the turn outcome.
+
+``ReadingSeries`` is the one channel that carries more than certified
+values: the ordered figures of a reading WITH the ranges around them, so a
+claim about which way something moved, or which row is best, can be
+checked rather than trusted. See its docstring for the determination that
+made it necessary.
 """
 
 from __future__ import annotations
@@ -13,6 +19,90 @@ from __future__ import annotations
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class SeriesPoint(BaseModel):
+    """One published figure of one reading, with the range around it.
+
+    ``display`` is the figure as its own reading already formatted it —
+    "47.2%", "$99,093" — so nothing downstream re-derives a percentage from
+    a ratio or dollars from cents. ``value`` and the two bounds are the
+    exact decimals the same figure carries, and they exist for arithmetic
+    the reader never sees: whether two figures are far enough apart to be
+    called a direction, and whether a spread is wider than the uncertainty
+    around it. A withheld figure has no value and no bounds; a bounded one
+    carries a ceiling rather than a measurement, and neither can bear a
+    claim about which way something moved.
+    """
+
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+
+    label: str
+    display: str = ""
+    value: Decimal | None = None
+    interval_low: Decimal | None = None
+    interval_high: Decimal | None = None
+    bounded: bool = False
+    withheld: bool = False
+
+
+class ReadingSeries(BaseModel):
+    """The ordered figures one reading published, and what they can bear.
+
+    The grounding validator could always check that a number was measured;
+    it could never check that a SENTENCE about those numbers was. So a
+    study published "it is getting worse on appeals: 47.2% Aug … 45.2% Jan,
+    ending below where it started" over six months whose confidence
+    intervals every one of them overlapped every other — point estimates
+    spanning 11.3 points inside ranges 28 points wide — and truncated the
+    series at January, without saying so, because the four months it left
+    out are what made "ending below where it started" false. Every figure
+    in that sentence was certified. The direction was not, and nothing on
+    the wire reached the validator that could have said so.
+
+    This is that channel. One entry per reading, carrying the reading's own
+    ordered figures WITH their ranges, so a direction, a ranking or a
+    truncated window is a deterministic comparison rather than a
+    plausible-sounding paragraph.
+    """
+
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+
+    #: The reading this series came from, so a redaction can be traced back
+    #: to the table it was about.
+    reading_id: str
+    #: What the figures measure, in the reader's words — never a metric id.
+    measure_label: str = ""
+    #: The window the reading itself was taken over. A claim's window is
+    #: this window; a claim that quotes less of the series than the reading
+    #: published is describing a slice it chose.
+    window_label: str = ""
+    #: True when the points are periods in order. "Rose", "fell" and
+    #: "ending below where it started" mean something over a trend and
+    #: nothing over a league table, where the first and last rows are an
+    #: ordering rather than a start and an end.
+    over_time: bool = False
+    #: The figures in the order the reading published them.
+    points: list[SeriesPoint] = Field(default_factory=list)
+    #: The width of the widest range this study demonstrated for figures of
+    #: this kind — this reading's own where it published ranges, and
+    #: otherwise the middle width its sibling readings of the same unit
+    #: published. A facility study that names a best and a worst 1.1 points
+    #: apart, while the study's own measurements of that kind of rate carry
+    #: ranges 30 points wide, is ordering noise. ``None`` where the study
+    #: published no ranges at all, in which case no claim is refused on
+    #: this ground — precision is never invented.
+    comparable_interval_width: Decimal | None = None
+    #: What goes in the place of a direction the ranges do not support,
+    #: composed here rather than by the validator: the sentence names two
+    #: figures, and the module that composes it is the one holding the
+    #: figures. Empty where the reading has no two measured endpoints.
+    direction_substitute: str = ""
+    #: What goes in the place of a best-or-worst the spread does not
+    #: support — the same discipline a ranking already follows when too
+    #: much of its field is a ceiling. Empty where there is nothing to
+    #: order.
+    ranking_refusal: str = ""
 
 
 class NarrativeFacts(BaseModel):
@@ -79,6 +169,12 @@ class NarrativeFacts(BaseModel):
     #: asserting one is dropped unless it negates it. Empty on every turn
     #: that asserts no size, which is almost all of them.
     forbidden_magnitude_claims: list[str] = Field(default_factory=list)
+    #: The interval-carrying series this answer rests on, one per reading —
+    #: see :class:`ReadingSeries` for what a study published without it.
+    #: Empty on the quick path, which measures no intervals; a guard that
+    #: has no ranges to check against never fires, and none are invented to
+    #: make it fire.
+    interval_series: list[ReadingSeries] = Field(default_factory=list)
 
 
 class NarrativeRedaction(BaseModel):

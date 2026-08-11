@@ -103,7 +103,10 @@ export function ResearchSurface({ runId }: { runId: string }) {
     };
   }, [driverKind]);
 
-  const { state, loading, error } = useDeepResearchRun(runId, driverKind === "api");
+  const { state, loading, error, stop, stopping, stopError } = useDeepResearchRun(
+    runId,
+    driverKind === "api",
+  );
   const report = state?.run.report;
   /**
    * A STUDY IS THE OTHER ARTIFACT A RUN CAN PRODUCE, and it is a different
@@ -210,7 +213,12 @@ export function ResearchSurface({ runId }: { runId: string }) {
               ) : finished && report ? (
                 <ResearchReportView report={report} runId={state.run.id} />
               ) : (
-                <ResearchProgress state={state} />
+                <ResearchProgress
+                  state={state}
+                  onStop={stop}
+                  stopping={stopping}
+                  stopError={stopError}
+                />
               )}
             </div>
           </div>

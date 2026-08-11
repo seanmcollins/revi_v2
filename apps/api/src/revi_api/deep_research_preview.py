@@ -45,12 +45,13 @@ MAX_PATH_CHOICES = 5
 
 
 def generalized_preview_payload(
-    preview: ResearchPreview, catalog: CatalogSnapshot
+    preview: ResearchPreview, catalog: CatalogSnapshot, *, plan_id: str = ""
 ) -> GeneralizedResearchPreviewPayload:
     """One resolved preview, in the words a reader sees."""
     orientation = preview.orientation
     return GeneralizedResearchPreviewPayload(
         research_question=orientation.question,
+        plan_id=plan_id,
         population_label=population_words(orientation.population),
         window_label=window_words(orientation.window),
         path_choices=[
@@ -75,5 +76,10 @@ def generalized_preview_payload(
         rationale=preview.rationale,
         authored_by="model" if preview.authored_by == "model" else "revi",
         rounds_planned=preview.budget,
-        refusal=preview.refusal,
+        # A question with one answerable half and one unanswerable one still
+        # gets its readings — and still says, here, before the minute is
+        # spent, which half it cannot reach. The alternative is what this
+        # replaced: five cheerful availability statements on the card and
+        # the honesty at the far end of the transaction.
+        refusal=preview.refusal or preview.gap_note,
     )

@@ -490,8 +490,18 @@ FAMILIES: list[tuple[str, str, str]] = [
         "DEEP_RESEARCH_INDEPENDENCE",
         "caution",
         "deep_research_independence: The range around the total is the sum of each "
-        "population's own range. Populations that share payers, staffing and seasons "
-        "move together, so read it as a spread rather than a guarantee.",
+        "population's own range — the widest way to add ranges up, and wider than it "
+        "would be if the populations moved independently. Read it as a spread rather "
+        "than a guarantee.",
+    ),
+    # A second, different limit on the same figure. Two codes because two
+    # titles: how the ranges add up, and what the range does not move with.
+    (
+        "DEEP_RESEARCH_AMOUNTS_KNOWN",
+        "caution",
+        "deep_research_amounts_known: The range moves with the recovery rate only. The "
+        "denied amounts, and the share of a denied dollar a win returns, are treated as "
+        "known — so the true spread is wider than the one shown.",
     ),
     (
         "DEEP_RESEARCH_ANGLE_REFUSED",

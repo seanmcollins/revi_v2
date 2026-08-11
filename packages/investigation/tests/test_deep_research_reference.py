@@ -399,19 +399,67 @@ class TestTheHeadlineArithmetic:
         assert recomputed == report.headline.total_expected_cents
 
     def test_every_population_is_priced_at_its_own_rate_to_the_cent(self, report) -> None:
+        """Each line rebuilds from its own published parts, to the cent.
+
+        The parts are on the page: the dollars on each side of the filing
+        deadline, the rate that side was priced at, and what a win returns
+        on the denied dollar. A reader with a calculator must be able to
+        reach the same number, which is the only thing that makes the
+        headline checkable rather than asserted.
+        """
         for row in report.strata:
             assert row.rate_cell.rate is not None
-            assert row.expected_cents == _cents(
-                Decimal(row.rate_cell.rate), row.open_dollars_cents
-            ), row.label
+            assert row.severity is not None, row.label
+            severity = Decimal(row.severity)
+            rebuilt = 0
+            low = 0
+            high = 0
+            for position in row.positions:
+                if position.scope == "none":
+                    assert position.expected_cents is None
+                    continue
+                assert position.rate is not None and position.interval is not None
+                assert position.severity == row.severity
+                rebuilt += _cents(severity * Decimal(position.rate), position.dollars_cents)
+                low += _cents(
+                    severity * Decimal(position.interval.low), position.dollars_cents
+                )
+                high += _cents(
+                    severity * Decimal(position.interval.high), position.dollars_cents
+                )
+            assert row.expected_cents == rebuilt, row.label
             assert row.expected_interval is not None
-            assert row.rate_cell.interval is not None
-            assert row.expected_interval.low_cents == _cents(
-                Decimal(row.rate_cell.interval.low), row.open_dollars_cents
-            )
-            assert row.expected_interval.high_cents == _cents(
-                Decimal(row.rate_cell.interval.high), row.open_dollars_cents
-            )
+            assert row.expected_interval.low_cents == low, row.label
+            assert row.expected_interval.high_cents == high, row.label
+
+    def test_a_win_is_never_priced_at_the_full_denied_amount(self, report) -> None:
+        """The P0 defect, pinned at the report layer.
+
+        Rate times full denied dollars is what the old composition
+        published. Every priced line must now come in strictly under it.
+        """
+        assert report.headline.severity is not None
+        assert Decimal(report.headline.severity) < Decimal(1)
+        for row in report.strata:
+            naive = _cents(Decimal(row.rate_cell.rate or "0"), row.open_dollars_cents)
+            assert (row.expected_cents or 0) < naive, row.label
+
+    def test_the_dollars_past_the_deadline_are_priced_past_the_deadline(self, report) -> None:
+        within = Decimal(report.headline.within_deadline_rate or "0")
+        past = Decimal(report.headline.past_deadline_rate or "0")
+        assert past < within
+        for row in report.strata:
+            for position in row.positions:
+                if position.position != "past_deadline" or position.scope == "none":
+                    continue
+                assert Decimal(position.rate or "0") < within, row.label
+
+    def test_the_headline_states_how_it_was_built(self, report) -> None:
+        construction = report.headline.construction
+        assert "filing deadline" in construction
+        assert "cents" in construction
+        lead = next(f for f in report.findings if f.referent == "F1")
+        assert construction in lead.statement
 
     def test_the_range_is_the_sum_of_the_ranges_and_says_so(self, report) -> None:
         headline = report.headline
@@ -421,7 +469,8 @@ class TestTheHeadlineArithmetic:
         assert headline.total_expected_interval.high_cents == sum(
             row.expected_interval.high_cents for row in report.strata if row.expected_interval
         )
-        assert headline.range_assumes_independence is True
+        assert headline.range_is_summed_endpoints is True
+        assert headline.amounts_treated_as_known is True
 
     def test_open_dollars_partition_by_filing_position(self, report) -> None:
         headline = report.headline
@@ -435,7 +484,9 @@ class TestTheHeadlineArithmetic:
     def test_priced_and_unpriced_partition_the_open_dollars(self, report) -> None:
         headline = report.headline
         assert (
-            headline.priced_open_dollars_cents + headline.unpriced_open_dollars_cents
+            headline.priced_open_dollars_cents
+            + headline.unpriced_open_dollars_cents
+            + headline.unpriced_position_dollars_cents
             == headline.total_open_dollars_cents
         )
 

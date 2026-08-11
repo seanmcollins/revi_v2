@@ -137,8 +137,16 @@ ContrastTestLiteral = Literal["two_proportion_z", "fishers_exact", "refused"]
 
 #: ``preview`` is the one state that is not a run: a plan-only request
 #: resolved what a run would do and started nothing.
+#:
+#: ``cancelled`` and ``interrupted`` are deliberately two words for two
+#: different facts. Somebody asked for this run to stop and it stopped —
+#: that is ``cancelled``, and the record says how far it got. Nobody asked,
+#: and the process carrying it died — that is ``interrupted``, and all the
+#: record can honestly say is that the run started and never finished.
+#: Flattening them would tell a reader who pressed Stop that something went
+#: wrong, and a reader whose run was lost that they did it themselves.
 DeepResearchStatusLiteral = Literal[
-    "preview", "planning", "running", "complete", "failed", "interrupted"
+    "preview", "planning", "running", "complete", "failed", "interrupted", "cancelled"
 ]
 
 #: The phases a run passes through, in the order it passes through them.
@@ -162,6 +170,7 @@ DeepResearchEventKind = Literal[
     "research_warning",
     "narrative_delta",
     "error",
+    "research_cancelled",
     "research_complete",
 ]
 
@@ -179,6 +188,10 @@ DEEP_RESEARCH_EVENT_PAYLOADS: dict[str, str] = {
     "research_warning": "a qualification a reader needs before reading the numbers",
     "narrative_delta": "one chunk of the written report as it is composed",
     "error": "the run stopped; nothing partial is published",
+    "research_cancelled": (
+        "somebody stopped this run — it ended at the next safe point, nothing partial "
+        "is published, and the record keeps how far it got"
+    ),
     "research_complete": "the finished report",
 }
 
@@ -280,6 +293,33 @@ class ResearchPlanPayload(ClosedModel):
 # angle results
 
 
+class PricedPositionPayload(ClosedModel):
+    """One side of the filing deadline inside one population, and its price.
+
+    The unit the total is actually built from. ``scope`` says whose
+    evidence set the rate: this population's own answered denials, or the
+    whole read's answer for that side of the deadline when this
+    population's own cohort was too thin. A reader deciding where to put
+    people is entitled to know which of the two they are reading, per line,
+    rather than being told once at the bottom of the page.
+    """
+
+    #: ``within_deadline``, ``past_deadline`` or ``unknown``.
+    position: str
+    position_label: str
+    dollars_cents: int
+    #: ``own``, ``population`` or ``none``.
+    scope: Literal["own", "population", "none"]
+    rate: str | None = None
+    interval: IntervalPayload | None = None
+    #: Answered denials the rate rests on.
+    n: int = 0
+    #: The share of a denied dollar a win returns, applied on top.
+    severity: str | None = None
+    expected_cents: int | None = None
+    expected_interval: MoneyIntervalPayload | None = None
+
+
 class ExpectedRecoveryRowPayload(ClosedModel):
     """One population of open denials, priced or explicitly not priced."""
 
@@ -292,6 +332,13 @@ class ExpectedRecoveryRowPayload(ClosedModel):
     deadline_passed_dollars_cents: int
     deadline_unknown_dollars_cents: int
     rate_cell: RateCellPayload
+    #: The filing-deadline buckets this population's dollars were priced in.
+    positions: list[PricedPositionPayload] = Field(default_factory=list)
+    #: The share of a denied dollar a win returns, and whose denials it was
+    #: measured over.
+    severity: str | None = None
+    severity_scope: Literal["own", "population", "none"] = "none"
+    severity_wins: int = 0
     expected_cents: int | None = None
     expected_interval: MoneyIntervalPayload | None = None
 
@@ -321,10 +368,18 @@ class HeadlinePayload(ClosedModel):
     of the inventory went unpriced instead of finding a total that quietly
     assumed zero.
 
-    The range is the sum of each population's own range. Populations that
-    share payers, staffing and seasons move together, so it is a spread
-    indication rather than a guarantee — ``range_assumes_independence``
-    says so on the wire rather than in a comment.
+    The range is the sum of each population's own range — the widest way to
+    add ranges up, wider than independence would give, and therefore a
+    spread indication rather than a calibrated band.
+    ``range_is_summed_endpoints`` says which arithmetic produced it, and
+    ``amounts_treated_as_known`` says what it leaves out: only the recovery
+    rate carries variance, while the denied amounts and the share of a
+    denied dollar a win returns enter as constants.
+
+    ``construction`` states, in one sentence, how the figure was built —
+    the filing-deadline split, the rate on each side, and what a win is
+    actually worth. A headline whose construction is not on the page beside
+    it is a headline a reader cannot check.
     """
 
     total_open_denials: int
@@ -337,7 +392,22 @@ class HeadlinePayload(ClosedModel):
     catchable_dollars_cents: int
     deadline_passed_dollars_cents: int
     deadline_unknown_dollars_cents: int
-    range_assumes_independence: bool = True
+    #: Dollars inside a priced population that no side-of-the-deadline rate
+    #: could price — an unrecorded filing limit, or a side too thin to read.
+    unpriced_position_dollars_cents: int = 0
+    construction: str = ""
+    #: The two population-level rates the construction quotes.
+    within_deadline_rate: str | None = None
+    within_deadline_n: int = 0
+    past_deadline_rate: str | None = None
+    past_deadline_n: int = 0
+    #: What a win returns on the denied dollar, over the whole read.
+    severity: str | None = None
+    severity_wins: int = 0
+    severity_recovered_cents: int = 0
+    severity_denied_cents: int = 0
+    range_is_summed_endpoints: bool = True
+    amounts_treated_as_known: bool = True
 
 
 class ContrastArmPayload(ClosedModel):
@@ -597,7 +667,14 @@ class GeneralizedResearchPreviewPayload(ClosedModel):
     population_label: str = ""
     #: The period it will read, in a reader's words.
     window_label: str
+    #: The handle for THIS plan. Sent back on the launch request, it makes
+    #: the run's opening readings the ones on this card rather than a
+    #: fresh draw from the same question.
+    plan_id: str = ""
     #: What was established about the data before anything was chosen.
+    #: Negative statements lead — what the question wanted that this data
+    #: does not carry is the half of the card a reader most needs before
+    #: spending a minute.
     path_choices: list[ResearchPathChoicePayload] = Field(default_factory=list)
     #: One sentence naming what was consulted, or that nothing spoke to it.
     knowledge_statement: str = ""
@@ -687,10 +764,22 @@ class ResearchFigurePayload(ClosedModel):
     withheld: bool = False
     #: The population this figure is a rate OVER, where the measure is a
     #: ratio whose denominator counts one. Absent for an additive measure,
-    #: where "the population" is not a thing the number has.
+    #: where "the population" is not a thing the number has — and absent,
+    #: with ``successes`` and ``interval``, on a bounded or withheld
+    #: figure: a ceiling beside its own numerator and denominator is one
+    #: division away from the value it exists to withhold, and a withheld
+    #: cell's population is the small cohort the disclosure rule refused
+    #: to name.
     population: int | None = None
     successes: int | None = None
     interval: IntervalPayload | None = None
+    #: True when this figure's own period has NOT finished settling — the
+    #: reading reaches the edge of the data, and what has settled there is
+    #: not a random sample of what has not. A mark rather than a sentence,
+    #: for the same reason ``bounded`` is one: a caveat that lives only in
+    #: prose is dropped by every exporter and drawn by no renderer, and a
+    #: point like this one grounded a published "fell to 0.0%".
+    censored: bool = False
 
 
 class ResearchReadingPayload(ClosedModel):
@@ -734,6 +823,17 @@ class ResearchReadingPayload(ClosedModel):
     #: Set when the reading could not be ordered honestly.
     ranking_refused: str = ""
     notes: list[str] = Field(default_factory=list)
+    #: The coded warnings THIS reading raised, in the same
+    #: ``<code>: <sentence>`` spelling the conversational surface uses —
+    #: the settling verdict on its window, the date basis it had to
+    #: substitute, the ceilings in its field, the ordering it refused.
+    #:
+    #: Published beside the figures as well as folded into the study's own
+    #: warning list, because the study-level fold is the bottom of a long
+    #: page: a reader looking at "0.0% in Aug 2026" needs the caveat that
+    #: governs THAT number next to it, and a client that can only render
+    #: one list renders it in the wrong place.
+    warnings: list[str] = Field(default_factory=list)
     #: Why this reading could not be taken, when it could not.
     refusal: str = ""
     # -- provenance, complete, per reading -------------------------------
@@ -787,6 +887,14 @@ class ResearchWalkPayload(ClosedModel):
     authored_by: Literal["model", "revi"] = "revi"
     rationale: str = ""
     rounds: list[ResearchRoundPayload] = Field(default_factory=list)
+    #: ``True`` when the opening round is the plan a reader saw on the
+    #: confirmation card and approved. ``False`` when the run planned its
+    #: own opening, in which case ``plan_variance`` says in one sentence
+    #: what that means — the same question can legitimately open on
+    #: different readings, and "chosen for this question" must not be read
+    #: as one deliberation per run when it means one sample per run.
+    plan_confirmed: bool = False
+    plan_variance: str = ""
 
 
 class ResearchCensoringPayload(ClosedModel):
@@ -933,6 +1041,13 @@ class StartDeepResearchRequest(ClosedModel):
     #: anything. Answers 200 with :class:`DeepResearchPreviewPayload` on the
     #: response's ``preview`` field rather than 202 with a run.
     plan_only: bool = False
+    #: The plan a reader confirmed, exactly as the card handed it back.
+    #: With it, the run's opening readings ARE the ones on the card and the
+    #: planner is re-entered only for the rounds beyond it — the ones
+    #: nobody previewed. Without it the run plans its own opening, which is
+    #: legitimate and is disclosed on the walk rather than left to read as
+    #: a deliberation.
+    plan_id: str | None = None
 
 
 class DeepResearchProgressPayload(ClosedModel):

@@ -97,6 +97,17 @@ MAX_CELLS_QUOTED = 8
 #: composer's job and is written from certified figures.
 MAX_REASON_CHARS = 220
 
+#: What a measured figure looks like in prose: a percentage, a decimal, a
+#: money amount, or a multiple. A reason carrying one is asserting a result
+#: it cannot have, because it was written before the reading ran.
+_FIGURE_SHAPE = re.compile(
+    r"(\d+(\.\d+)?\s*(%|percent|percentage points?|pts?\b)"
+    r"|\$\s*\d"
+    r"|\b\d+\.\d+\b"
+    r"|\b\d+(\.\d+)?\s*x\b)",
+    re.IGNORECASE,
+)
+
 #: A snake_case identifier — a metric id, a dimension id, a column. Banned
 #: from every client-visible string (``docs/client-language.md`` §3), and a
 #: reason IS client-visible, so one that arrives carrying an id has the id
@@ -265,10 +276,30 @@ def reason_words(text: str, fallback: str) -> str:
     """
     flat = " ".join(text.split())
     flat = _IDENTIFIER.sub(lambda match: match.group(0).replace("_", " "), flat)
+    if _asserts_a_finding(flat):
+        # A reason is written BEFORE the reading runs, so it cannot contain
+        # a measured figure — anything shaped like one is a claim the run
+        # has not made yet, published on the walk as though it had. The
+        # deterministic reason says the same thing without asserting a
+        # result.
+        return fallback
     if len(flat) > MAX_REASON_CHARS:
         clipped = flat[:MAX_REASON_CHARS].rsplit(" ", 1)[0]
         flat = clipped.rstrip(",;:— ") + "…"
     return flat or fallback
+
+
+def _asserts_a_finding(text: str) -> bool:
+    """Does this sentence state a result rather than a purpose?
+
+    The test is deliberately narrow and mechanical: a figure — a percentage,
+    a decimal, a money amount, or a multiple — inside a sentence written
+    before anything was measured. Ordinary numbers a plan may legitimately
+    carry (a month, a count of groups, a year) are not figures and are left
+    alone, so "the twelve months asked about" survives and "denials rose
+    18.4%" does not.
+    """
+    return bool(_FIGURE_SHAPE.search(text))
 
 
 def _fallback_reason(angle: MeasureAngle, shape: AngleShape) -> str:

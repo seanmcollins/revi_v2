@@ -179,7 +179,7 @@ export type ResearchThinPopulations = components["schemas"]["ThinPopulationsPayl
 export type ResearchAngleEvidence = components["schemas"]["AngleEvidencePayload"];
 export type ResearchWarning = components["schemas"]["WarningPayload"];
 
-/** `preview | planning | running | complete | failed | interrupted`. */
+/** `preview | planning | running | complete | failed | interrupted | cancelled`. */
 export type ResearchStatus = ResearchRun["status"];
 /** `orient | consult | plan | execute | read | round | synthesize`. */
 export type ResearchPhaseId = ResearchProgress["phase"];
@@ -193,6 +193,25 @@ export type ResearchPhaseId = ResearchProgress["phase"];
  */
 export function isRunning(status: ResearchStatus): boolean {
   return status === "planning" || status === "running";
+}
+
+/**
+ * DID THIS RUN GO WRONG, OR DID SOMEBODY END IT?
+ *
+ * Three ways a run ends without a report and only two of them are faults.
+ * `failed` is the platform's, `interrupted` is a process that died holding
+ * the run — both are things that happened TO a reader. `cancelled` is a
+ * reader pressing Stop, which is the surface doing what it was asked, and
+ * rendering it in the warning register would report somebody's own
+ * decision back to them as a problem.
+ */
+export function wasStopped(status: ResearchStatus): boolean {
+  return status === "cancelled";
+}
+
+/** A run that ended badly — never a run somebody stopped on purpose. */
+export function hasFailed(status: ResearchStatus): boolean {
+  return status === "failed" || status === "interrupted";
 }
 
 /* ------------------------------------------------------------------ */
@@ -765,6 +784,11 @@ const RUN_STATUSES: ReadonlySet<string> = new Set([
   "complete",
   "failed",
   "interrupted",
+  // A run somebody stopped. Distinct from `interrupted` on the wire
+  // because it is distinct in fact, and a client that folded the two
+  // together would have to choose which of the two sentences to tell every
+  // reader — the one about their own decision, or the one about ours.
+  "cancelled",
 ]);
 
 /** Every top-level field the run surface cannot render without. */
@@ -1044,6 +1068,25 @@ export function applyResearchFrame(
           status: "complete",
           report,
           report_kind: "recovery",
+        },
+      };
+    }
+    case "research_cancelled": {
+      // THE RUN WAS STOPPED, AND THAT IS NOT AN ERROR FRAME. It arrives on
+      // its own kind for exactly that reason: a watcher in another tab
+      // learns that somebody ended the run, and must not be shown a
+      // failure for a thing that worked.
+      const message = frame.data.message;
+      return {
+        ...state,
+        draftNarrative: "",
+        run: {
+          ...state.run,
+          status: "cancelled",
+          error:
+            typeof message === "string" && message !== ""
+              ? message
+              : "This run was stopped before it finished, so nothing was published.",
         },
       };
     }

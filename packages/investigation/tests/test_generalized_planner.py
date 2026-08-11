@@ -674,7 +674,14 @@ class TestTheRoundIsNamedInPlainLanguage:
                 reason=(
                     "the payer spread was decisive — cutting inside Veritas Comp Fund next"
                 ),
-                measure=MeasureAngle(metric_id="denied_dollars", cut_by=("carc",)),
+                # A chase is a NARROWING into a population the gate admitted.
+                # Without one this is a new cut, and calling it a chase would
+                # be the run claiming it went after something.
+                measure=MeasureAngle(
+                    metric_id="denied_dollars",
+                    cut_by=("carc",),
+                    within=(("payer", "Veritas Comp Fund"),),
+                ),
             ),
         )
         words = round_words(1, planned)

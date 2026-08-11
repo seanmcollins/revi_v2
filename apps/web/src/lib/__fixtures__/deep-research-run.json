@@ -9,16 +9,19 @@
   "label": ""
  },
  "data_load_label": "the load through Aug 2, 2026",
+ "research_question": "",
  "progress": {
   "phase": "synthesize",
   "angle_index": 8,
   "angle_total": 8,
   "message": "Writing it up",
-  "elapsed_ms": 14686
+  "elapsed_ms": 97,
+  "round_index": 0,
+  "round_total": 0
  },
  "report": {
   "id": "dr_2707e2b4b25d4a64",
-  "research_question": "Of the denials still open, which ones are most likely to be recovered, and which payers and denial types is that money sitting with?",
+  "research_question": "Of the denials still open, how much is realistically coming back, and where?",
   "population": {
    "kind": "all_open",
    "values": [],
@@ -30,7 +33,7 @@
   "completed_at": "2026-08-11T02:37:29.796373Z",
   "duration_ms": 14686,
   "plan": {
-   "research_question": "Of the denials still open, which ones are most likely to be recovered, and which payers and denial types is that money sitting with?",
+   "research_question": "Of the denials still open, how much is realistically coming back, and where?",
    "angles": [
     {
      "family": "expected_recovery",
@@ -48,16 +51,6 @@
      "title": "Recovery rates by population",
      "purpose": "How often resubmitting works, cut by the populations that matter, with the size of the group behind every rate.",
      "stratify_by": [
-      "payer"
-     ],
-     "within": [],
-     "basis": "decided"
-    },
-    {
-     "family": "outcome_by_stratum",
-     "title": "Recovery rates by population",
-     "purpose": "How often resubmitting works, cut by the populations that matter, with the size of the group behind every rate.",
-     "stratify_by": [
       "recovery_class"
      ],
      "within": [],
@@ -68,7 +61,7 @@
      "title": "Recovery rates by population",
      "purpose": "How often resubmitting works, cut by the populations that matter, with the size of the group behind every rate.",
      "stratify_by": [
-      "dollar_band"
+      "payer"
      ],
      "within": [],
      "basis": "decided"
@@ -101,25 +94,32 @@
      "family": "deadline_interaction",
      "title": "The filing deadline",
      "purpose": "What crossing a filing deadline costs, separated by whether the limit is confirmed or still needs confirming.",
-     "stratify_by": [
-      "filing_position",
-      "filing_rule"
-     ],
+     "stratify_by": [],
      "within": [],
      "basis": "decided"
+    },
+    {
+     "family": "outcome_by_stratum",
+     "title": "Recovery rates by population",
+     "purpose": "How often resubmitting works, cut by the populations that matter, with the size of the group behind every rate.",
+     "stratify_by": [
+      "recovery_class"
+     ],
+     "within": [],
+     "basis": "pursuit"
     }
    ],
-   "rationale": "The question asks both \"how much comes back\" and \"where\", so the headline pricing is cut by payer and denial type together, with single-cut recovery rates behind it to show which side of that interaction is doing the work. The two contrasts name the strongest and weakest ends with a test, and the timeliness curve plus the deadline split are the standing levers the reader can actually act on.",
-   "authored_by": "model",
+   "rationale": "Revi's standing set of angles for a recoverability review.",
+   "authored_by": "revi",
    "added_by_revi": []
   },
   "headline": {
    "total_open_denials": 2865,
    "total_open_dollars_cents": 574949512,
-   "total_expected_cents": 116766888,
+   "total_expected_cents": 30912994,
    "total_expected_interval": {
-    "low_cents": 87405242,
-    "high_cents": 151869369,
+    "low_cents": 22407989,
+    "high_cents": 43667886,
     "confidence": "0.95"
    },
    "priced_open_dollars_cents": 331872982,
@@ -128,7 +128,18 @@
    "catchable_dollars_cents": 283100286,
    "deadline_passed_dollars_cents": 291849226,
    "deadline_unknown_dollars_cents": 0,
-   "range_assumes_independence": true
+   "unpriced_position_dollars_cents": 0,
+   "construction": "That figure is built one population at a time: its open dollars are split by whether the filing deadline has passed, each side is priced at the rate denials on that side actually come back at — 44.2% for what is still inside the deadline (over 2,454 answered denials) and 3.8% for what is past it (over 79 answered denials) — and the result is multiplied by 44.5 cents on the dollar, which is what a win has actually returned across 1,087 recovered denials.",
+   "within_deadline_rate": "0.4417277914",
+   "within_deadline_n": 2454,
+   "past_deadline_rate": "0.0379746835",
+   "past_deadline_n": 79,
+   "severity": "0.4450051696",
+   "severity_wins": 1087,
+   "severity_recovered_cents": 123443605,
+   "severity_denied_cents": 277398137,
+   "range_is_summed_endpoints": true,
+   "amounts_treated_as_known": true
   },
   "strata": [
    {
@@ -181,10 +192,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 2296469,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 2187689,
+      "scope": "own",
+      "rate": "0.5833333333",
+      "interval": {
+       "low": "0.4220025157",
+       "high": "0.7285943795",
+       "confidence": "0.95"
+      },
+      "n": 36,
+      "severity": "0.4450051696",
+      "expected_cents": 567894,
+      "expected_interval": {
+       "low_cents": 410833,
+       "high_cents": 709311,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 1749115,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.4450051696",
+      "expected_cents": 29558,
+      "expected_interval": {
+       "low_cents": 10117,
+       "high_cents": 82352,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.4450051696",
+    "severity_scope": "population",
+    "severity_wins": 1087,
+    "expected_cents": 597452,
     "expected_interval": {
-     "low_cents": 1661341,
-     "high_cents": 2868333,
+     "low_cents": 420950,
+     "high_cents": 791663,
      "confidence": "0.95"
     }
    },
@@ -238,10 +294,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 5636175,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 7566628,
+      "scope": "own",
+      "rate": "0.1981132075",
+      "interval": {
+       "low": "0.1333889353",
+       "high": "0.2839531076",
+       "confidence": "0.95"
+      },
+      "n": 106,
+      "severity": "0.4450051696",
+      "expected_cents": 667085,
+      "expected_interval": {
+       "low_cents": 449146,
+       "high_cents": 956124,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 23029750,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.4450051696",
+      "expected_cents": 389178,
+      "expected_interval": {
+       "low_cents": 133209,
+       "high_cents": 1084283,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.4450051696",
+    "severity_scope": "population",
+    "severity_wins": 1087,
+    "expected_cents": 1056263,
     "expected_interval": {
-     "low_cents": 3786617,
-     "high_cents": 8115667,
+     "low_cents": 582355,
+     "high_cents": 2040407,
      "confidence": "0.95"
     }
    },
@@ -295,10 +396,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 6582252,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 3873544,
+      "scope": "own",
+      "rate": "0.8105263158",
+      "interval": {
+       "low": "0.7202640343",
+       "high": "0.8766514777",
+       "confidence": "0.95"
+      },
+      "n": 95,
+      "severity": "0.5236570870",
+      "expected_cents": 1644079,
+      "expected_interval": {
+       "low_cents": 1460990,
+       "high_cents": 1778208,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 4418384,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.5236570870",
+      "expected_cents": 87863,
+      "expected_interval": {
+       "low_cents": 30074,
+       "high_cents": 244793,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.5236570870",
+    "severity_scope": "own",
+    "severity_wins": 77,
+    "expected_cents": 1731942,
     "expected_interval": {
-     "low_cents": 5828153,
-     "high_cents": 7150735,
+     "low_cents": 1491064,
+     "high_cents": 2023001,
      "confidence": "0.95"
     }
    },
@@ -352,10 +498,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 4203495,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 4603585,
+      "scope": "own",
+      "rate": "0.5324675325",
+      "interval": {
+       "low": "0.4538356436",
+       "high": "0.6095190674",
+       "confidence": "0.95"
+      },
+      "n": 154,
+      "severity": "0.4756321808",
+      "expected_cents": 1165898,
+      "expected_interval": {
+       "low_cents": 993725,
+       "high_cents": 1334611,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 3290783,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.4756321808",
+      "expected_cents": 59438,
+      "expected_interval": {
+       "low_cents": 20345,
+       "high_cents": 165599,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.4756321808",
+    "severity_scope": "own",
+    "severity_wins": 82,
+    "expected_cents": 1225336,
     "expected_interval": {
-     "low_cents": 3582746,
-     "high_cents": 4811768,
+     "low_cents": 1014070,
+     "high_cents": 1500210,
      "confidence": "0.95"
     }
    },
@@ -409,10 +600,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 8777980,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 9606361,
+      "scope": "own",
+      "rate": "0.3768115942",
+      "interval": {
+       "low": "0.3003303940",
+       "high": "0.4599653596",
+       "confidence": "0.95"
+      },
+      "n": 138,
+      "severity": "0.4985064111",
+      "expected_cents": 1804488,
+      "expected_interval": {
+       "low_cents": 1438232,
+       "high_cents": 2202697,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 13746378,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.4985064111",
+      "expected_cents": 260228,
+      "expected_interval": {
+       "low_cents": 89071,
+       "high_cents": 725015,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.4985064111",
+    "severity_scope": "own",
+    "severity_wins": 53,
+    "expected_cents": 2064716,
     "expected_interval": {
-     "low_cents": 7011205,
-     "high_cents": 10698496,
+     "low_cents": 1527303,
+     "high_cents": 2927712,
      "confidence": "0.95"
     }
    },
@@ -466,10 +702,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 2019150,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 4184859,
+      "scope": "own",
+      "rate": "0.2058823529",
+      "interval": {
+       "low": "0.1034952690",
+       "high": "0.3679838805",
+       "confidence": "0.95"
+      },
+      "n": 34,
+      "severity": "0.4450051696",
+      "expected_cents": 383411,
+      "expected_interval": {
+       "low_cents": 192738,
+       "high_cents": 685290,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 5910891,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.4450051696",
+      "expected_cents": 99888,
+      "expected_interval": {
+       "low_cents": 34190,
+       "high_cents": 278296,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.4450051696",
+    "severity_scope": "population",
+    "severity_wins": 1087,
+    "expected_cents": 483299,
     "expected_interval": {
-     "low_cents": 1013860,
-     "high_cents": 3623528,
+     "low_cents": 226928,
+     "high_cents": 963586,
      "confidence": "0.95"
     }
    },
@@ -523,10 +804,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 2338158,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 3997701,
+      "scope": "own",
+      "rate": "0.4807692308",
+      "interval": {
+       "low": "0.3510411445",
+       "high": "0.6131431723",
+       "confidence": "0.95"
+      },
+      "n": 52,
+      "severity": "0.4450051696",
+      "expected_cents": 855287,
+      "expected_interval": {
+       "low_cents": 624501,
+       "high_cents": 1090780,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 865668,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.4450051696",
+      "expected_cents": 14629,
+      "expected_interval": {
+       "low_cents": 5007,
+       "high_cents": 40757,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.4450051696",
+    "severity_scope": "population",
+    "severity_wins": 1087,
+    "expected_cents": 869916,
     "expected_interval": {
-     "low_cents": 1707243,
-     "high_cents": 2981941,
+     "low_cents": 629508,
+     "high_cents": 1131537,
      "confidence": "0.95"
     }
    },
@@ -580,10 +906,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 2075605,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 8953708,
+      "scope": "own",
+      "rate": "0.1707317073",
+      "interval": {
+       "low": "0.0852525198",
+       "high": "0.3126261240",
+       "confidence": "0.95"
+      },
+      "n": 41,
+      "severity": "0.4450051696",
+      "expected_cents": 680271,
+      "expected_interval": {
+       "low_cents": 339684,
+       "high_cents": 1245642,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 3203406,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.4450051696",
+      "expected_cents": 54134,
+      "expected_interval": {
+       "low_cents": 18529,
+       "high_cents": 150822,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.4450051696",
+    "severity_scope": "population",
+    "severity_wins": 1087,
+    "expected_cents": 734405,
     "expected_interval": {
-     "low_cents": 1036425,
-     "high_cents": 3800631,
+     "low_cents": 358213,
+     "high_cents": 1396464,
      "confidence": "0.95"
     }
    },
@@ -637,10 +1008,35 @@
      },
      "floor": 30
     },
-    "expected_cents": 1988106,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 3062758,
+      "scope": "own",
+      "rate": "0.6491228070",
+      "interval": {
+       "low": "0.5194189536",
+       "high": "0.7599957799",
+       "confidence": "0.95"
+      },
+      "n": 57,
+      "severity": "0.3820945973",
+      "expected_cents": 759645,
+      "expected_interval": {
+       "low_cents": 607857,
+       "high_cents": 889395,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.3820945973",
+    "severity_scope": "own",
+    "severity_wins": 37,
+    "expected_cents": 759645,
     "expected_interval": {
-     "low_cents": 1590855,
-     "high_cents": 2327683,
+     "low_cents": 607857,
+     "high_cents": 889395,
      "confidence": "0.95"
     }
    },
@@ -694,10 +1090,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 6165459,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 6122655,
+      "scope": "own",
+      "rate": "0.7241379310",
+      "interval": {
+       "low": "0.5979534481",
+       "high": "0.8224764786",
+       "confidence": "0.95"
+      },
+      "n": 58,
+      "severity": "0.3876764862",
+      "expected_cents": 1718821,
+      "expected_interval": {
+       "low_cents": 1419308,
+       "high_cents": 1952238,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 2391550,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.3876764862",
+      "expected_cents": 35208,
+      "expected_interval": {
+       "low_cents": 12051,
+       "high_cents": 98093,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.3876764862",
+    "severity_scope": "own",
+    "severity_wins": 42,
+    "expected_cents": 1754029,
     "expected_interval": {
-     "low_cents": 5091098,
-     "high_cents": 7002733,
+     "low_cents": 1431359,
+     "high_cents": 2050331,
      "confidence": "0.95"
     }
    },
@@ -751,10 +1192,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 2461405,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 4487014,
+      "scope": "own",
+      "rate": "0.4153846154",
+      "interval": {
+       "low": "0.3036024156",
+       "high": "0.5366101513",
+       "confidence": "0.95"
+      },
+      "n": 65,
+      "severity": "0.4450051696",
+      "expected_cents": 829417,
+      "expected_interval": {
+       "low_cents": 606216,
+       "high_cents": 1071473,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 1438591,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.4450051696",
+      "expected_cents": 24311,
+      "expected_interval": {
+       "low_cents": 8321,
+       "high_cents": 67731,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.4450051696",
+    "severity_scope": "population",
+    "severity_wins": 1087,
+    "expected_cents": 853728,
     "expected_interval": {
-     "low_cents": 1799028,
-     "high_cents": 3179740,
+     "low_cents": 614537,
+     "high_cents": 1139204,
      "confidence": "0.95"
     }
    },
@@ -808,10 +1294,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 3089844,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 9738640,
+      "scope": "own",
+      "rate": "0.1568627451",
+      "interval": {
+       "low": "0.0816922322",
+       "high": "0.2801044677",
+       "confidence": "0.95"
+      },
+      "n": 51,
+      "severity": "0.4450051696",
+      "expected_cents": 679803,
+      "expected_interval": {
+       "low_cents": 354033,
+       "high_cents": 1213901,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 11117805,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.4450051696",
+      "expected_cents": 187879,
+      "expected_interval": {
+       "low_cents": 64308,
+       "high_cents": 523447,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.4450051696",
+    "severity_scope": "population",
+    "severity_wins": 1087,
+    "expected_cents": 867682,
     "expected_interval": {
-     "low_cents": 1606585,
-     "high_cents": 5547838,
+     "low_cents": 418341,
+     "high_cents": 1737348,
      "confidence": "0.95"
     }
    },
@@ -865,10 +1396,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 1479002,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 1769641,
+      "scope": "own",
+      "rate": "0.6470588235",
+      "interval": {
+       "low": "0.5098605845",
+       "high": "0.7636551155",
+       "confidence": "0.95"
+      },
+      "n": 51,
+      "severity": "0.5259526603",
+      "expected_cents": 602248,
+      "expected_interval": {
+       "low_cents": 474551,
+       "high_cents": 710770,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 560908,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.5259526603",
+      "expected_cents": 11203,
+      "expected_interval": {
+       "low_cents": 3835,
+       "high_cents": 31212,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.5259526603",
+    "severity_scope": "own",
+    "severity_wins": 33,
+    "expected_cents": 613451,
     "expected_interval": {
-     "low_cents": 1162284,
-     "high_cents": 1752557,
+     "low_cents": 478386,
+     "high_cents": 741982,
      "confidence": "0.95"
     }
    },
@@ -922,10 +1498,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 4839332,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 4077960,
+      "scope": "own",
+      "rate": "0.5753424658",
+      "interval": {
+       "low": "0.4609938046",
+       "high": "0.6821580846",
+       "confidence": "0.95"
+      },
+      "n": 73,
+      "severity": "0.4853800926",
+      "expected_cents": 1138810,
+      "expected_interval": {
+       "low_cents": 912473,
+       "high_cents": 1350237,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 4448482,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.4853800926",
+      "expected_cents": 81995,
+      "expected_interval": {
+       "low_cents": 28066,
+       "high_cents": 228445,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.4853800926",
+    "severity_scope": "own",
+    "severity_wins": 42,
+    "expected_cents": 1220805,
     "expected_interval": {
-     "low_cents": 3872091,
-     "high_cents": 5749711,
+     "low_cents": 940539,
+     "high_cents": 1578682,
      "confidence": "0.95"
     }
    },
@@ -979,10 +1600,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 4697179,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 6077225,
+      "scope": "own",
+      "rate": "0.4307692308",
+      "interval": {
+       "low": "0.3175945742",
+       "high": "0.5516702533",
+       "confidence": "0.95"
+      },
+      "n": 65,
+      "severity": "0.4450051696",
+      "expected_cents": 1164971,
+      "expected_interval": {
+       "low_cents": 858902,
+       "high_cents": 1491935,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 5162454,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.4450051696",
+      "expected_cents": 87240,
+      "expected_interval": {
+       "low_cents": 29861,
+       "high_cents": 243058,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.4450051696",
+    "severity_scope": "population",
+    "severity_wins": 1087,
+    "expected_cents": 1252211,
     "expected_interval": {
-     "low_cents": 3455336,
-     "high_cents": 6039087,
+     "low_cents": 888763,
+     "high_cents": 1734993,
      "confidence": "0.95"
     }
    },
@@ -1036,10 +1702,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 1149722,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 127536,
+      "scope": "own",
+      "rate": "0.3437500000",
+      "interval": {
+       "low": "0.2041043792",
+       "high": "0.5168891202",
+       "confidence": "0.95"
+      },
+      "n": 32,
+      "severity": "0.4450051696",
+      "expected_cents": 19509,
+      "expected_interval": {
+       "low_cents": 11584,
+       "high_cents": 29336,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 3530671,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.4450051696",
+      "expected_cents": 59665,
+      "expected_interval": {
+       "low_cents": 20422,
+       "high_cents": 166230,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.4450051696",
+    "severity_scope": "population",
+    "severity_wins": 1087,
+    "expected_cents": 79174,
     "expected_interval": {
-     "low_cents": 678628,
-     "high_cents": 1755199,
+     "low_cents": 32006,
+     "high_cents": 195566,
      "confidence": "0.95"
     }
    },
@@ -1093,10 +1804,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 814135,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 815737,
+      "scope": "population",
+      "rate": "0.4417277914",
+      "interval": {
+       "low": "0.4221863406",
+       "high": "0.4614513941",
+       "confidence": "0.95"
+      },
+      "n": 2454,
+      "severity": "0.4450051696",
+      "expected_cents": 160350,
+      "expected_interval": {
+       "low_cents": 153257,
+       "high_cents": 167510,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 1287445,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.4450051696",
+      "expected_cents": 21756,
+      "expected_interval": {
+       "low_cents": 7447,
+       "high_cents": 60615,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.4450051696",
+    "severity_scope": "population",
+    "severity_wins": 1087,
+    "expected_cents": 182106,
     "expected_interval": {
-     "low_cents": 499150,
-     "high_cents": 1181481,
+     "low_cents": 160704,
+     "high_cents": 228125,
      "confidence": "0.95"
     }
    },
@@ -1150,10 +1906,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 2882372,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 5873508,
+      "scope": "own",
+      "rate": "0.2352941176",
+      "interval": {
+       "low": "0.1243698553",
+       "high": "0.3999613792",
+       "confidence": "0.95"
+      },
+      "n": 34,
+      "severity": "0.4450051696",
+      "expected_cents": 614998,
+      "expected_interval": {
+       "low_cents": 325071,
+       "high_cents": 1045396,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 7457463,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.4450051696",
+      "expected_cents": 126023,
+      "expected_interval": {
+       "low_cents": 43136,
+       "high_cents": 351111,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.4450051696",
+    "severity_scope": "population",
+    "severity_wins": 1087,
+    "expected_cents": 741021,
     "expected_interval": {
-     "low_cents": 1517933,
-     "high_cents": 4958474,
+     "low_cents": 368207,
+     "high_cents": 1396507,
      "confidence": "0.95"
     }
    },
@@ -1207,10 +2008,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 1950611,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 592862,
+      "scope": "own",
+      "rate": "0.9444444444",
+      "interval": {
+       "low": "0.8185534279",
+       "high": "0.9846300133",
+       "confidence": "0.95"
+      },
+      "n": 36,
+      "severity": "0.5184870150",
+      "expected_cents": 290314,
+      "expected_interval": {
+       "low_cents": 251616,
+       "high_cents": 302667,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 1529862,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.5184870150",
+      "expected_cents": 30122,
+      "expected_interval": {
+       "low_cents": 10310,
+       "high_cents": 83922,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.5184870150",
+    "severity_scope": "own",
+    "severity_wins": 34,
+    "expected_cents": 320436,
     "expected_interval": {
-     "low_cents": 1670569,
-     "high_cents": 2063371,
+     "low_cents": 261926,
+     "high_cents": 386589,
      "confidence": "0.95"
     }
    },
@@ -1264,10 +2110,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 3117262,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 792639,
+      "scope": "own",
+      "rate": "0.5641025641",
+      "interval": {
+       "low": "0.4097569165",
+       "high": "0.7069524612",
+       "confidence": "0.95"
+      },
+      "n": 39,
+      "severity": "0.4450051696",
+      "expected_cents": 198975,
+      "expected_interval": {
+       "low_cents": 144533,
+       "high_cents": 249362,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 4733417,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.4450051696",
+      "expected_cents": 79990,
+      "expected_interval": {
+       "low_cents": 27379,
+       "high_cents": 222858,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.4450051696",
+    "severity_scope": "population",
+    "severity_wins": 1087,
+    "expected_cents": 278965,
     "expected_interval": {
-     "low_cents": 2264340,
-     "high_cents": 3906659,
+     "low_cents": 171912,
+     "high_cents": 472220,
      "confidence": "0.95"
     }
    },
@@ -1321,10 +2212,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 4315216,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 3205425,
+      "scope": "own",
+      "rate": "0.6060606061",
+      "interval": {
+       "low": "0.4368344082",
+       "high": "0.7531689257",
+       "confidence": "0.95"
+      },
+      "n": 33,
+      "severity": "0.4450051696",
+      "expected_cents": 864503,
+      "expected_interval": {
+       "low_cents": 623114,
+       "high_cents": 1074343,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 3914681,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.4450051696",
+      "expected_cents": 66154,
+      "expected_interval": {
+       "low_cents": 22643,
+       "high_cents": 184310,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.4450051696",
+    "severity_scope": "population",
+    "severity_wins": 1087,
+    "expected_cents": 930657,
     "expected_interval": {
-     "low_cents": 3110307,
-     "high_cents": 5362643,
+     "low_cents": 645757,
+     "high_cents": 1258653,
      "confidence": "0.95"
     }
    },
@@ -1378,10 +2314,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 601831,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 11374496,
+      "scope": "own",
+      "rate": "0.0377358491",
+      "interval": {
+       "low": "0.0104102873",
+       "high": "0.1275428720",
+       "confidence": "0.95"
+      },
+      "n": 53,
+      "severity": "0.4450051696",
+      "expected_cents": 191008,
+      "expected_interval": {
+       "low_cents": 52694,
+       "high_cents": 645585,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 4574026,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.4450051696",
+      "expected_cents": 77296,
+      "expected_interval": {
+       "low_cents": 26457,
+       "high_cents": 215353,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.4450051696",
+    "severity_scope": "population",
+    "severity_wins": 1087,
+    "expected_cents": 268304,
     "expected_interval": {
-     "low_cents": 166029,
-     "high_cents": 2034120,
+     "low_cents": 79151,
+     "high_cents": 860938,
      "confidence": "0.95"
     }
    },
@@ -1435,10 +2416,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 1246742,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 1500805,
+      "scope": "own",
+      "rate": "0.4888888889",
+      "interval": {
+       "low": "0.3495702375",
+       "high": "0.6299553536",
+       "confidence": "0.95"
+      },
+      "n": 45,
+      "severity": "0.4450051696",
+      "expected_cents": 326512,
+      "expected_interval": {
+       "low_cents": 233466,
+       "high_cents": 420726,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 1049350,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.4450051696",
+      "expected_cents": 17733,
+      "expected_interval": {
+       "low_cents": 6070,
+       "high_cents": 49405,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.4450051696",
+    "severity_scope": "population",
+    "severity_wins": 1087,
+    "expected_cents": 344245,
     "expected_interval": {
-     "low_cents": 891458,
-     "high_cents": 1606484,
+     "low_cents": 239536,
+     "high_cents": 470131,
      "confidence": "0.95"
     }
    },
@@ -1492,10 +2518,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 4149379,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 6360697,
+      "scope": "own",
+      "rate": "0.5166666667",
+      "interval": {
+       "low": "0.3930781003",
+       "high": "0.6382495046",
+       "confidence": "0.95"
+      },
+      "n": 60,
+      "severity": "0.4313636287",
+      "expected_cents": 1417616,
+      "expected_interval": {
+       "low_cents": 1078517,
+       "high_cents": 1751212,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 1670360,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.4313636287",
+      "expected_cents": 27362,
+      "expected_interval": {
+       "low_cents": 9366,
+       "high_cents": 76233,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.4313636287",
+    "severity_scope": "own",
+    "severity_wins": 31,
+    "expected_cents": 1444978,
     "expected_interval": {
-     "low_cents": 3156833,
-     "high_cents": 5125818,
+     "low_cents": 1087883,
+     "high_cents": 1827445,
      "confidence": "0.95"
     }
    },
@@ -1549,10 +2620,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 12931799,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 14810263,
+      "scope": "own",
+      "rate": "0.7107438017",
+      "interval": {
+       "low": "0.6244586368",
+       "high": "0.7840594988",
+       "confidence": "0.95"
+      },
+      "n": 121,
+      "severity": "0.4423511040",
+      "expected_cents": 4656322,
+      "expected_interval": {
+       "low_cents": 4091038,
+       "high_cents": 5136637,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 3384477,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.4423511040",
+      "expected_cents": 56853,
+      "expected_interval": {
+       "low_cents": 19460,
+       "high_cents": 158397,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.4423511040",
+    "severity_scope": "own",
+    "severity_wins": 86,
+    "expected_cents": 4713175,
     "expected_interval": {
-     "low_cents": 11361863,
-     "high_cents": 14265759,
+     "low_cents": 4110498,
+     "high_cents": 5295034,
      "confidence": "0.95"
     }
    },
@@ -1606,10 +2722,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 2558864,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 17767383,
+      "scope": "own",
+      "rate": "0.0722891566",
+      "interval": {
+       "low": "0.0335502955",
+       "high": "0.1488678609",
+       "confidence": "0.95"
+      },
+      "n": 83,
+      "severity": "0.4450051696",
+      "expected_cents": 571560,
+      "expected_interval": {
+       "low_cents": 265268,
+       "high_cents": 1177035,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 19336151,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.4450051696",
+      "expected_cents": 326760,
+      "expected_interval": {
+       "low_cents": 111844,
+       "high_cents": 910381,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.4450051696",
+    "severity_scope": "population",
+    "severity_wins": 1087,
+    "expected_cents": 898320,
     "expected_interval": {
-     "low_cents": 1186899,
-     "high_cents": 5283430,
+     "low_cents": 377112,
+     "high_cents": 2087416,
      "confidence": "0.95"
     }
    },
@@ -1663,10 +2824,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 4017179,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 6375436,
+      "scope": "own",
+      "rate": "0.4358974359",
+      "interval": {
+       "low": "0.3314324054",
+       "high": "0.5463801343",
+       "confidence": "0.95"
+      },
+      "n": 78,
+      "severity": "0.3389030159",
+      "expected_cents": 941824,
+      "expected_interval": {
+       "low_cents": 716111,
+       "high_cents": 1180539,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 2958598,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.3389030159",
+      "expected_cents": 38076,
+      "expected_interval": {
+       "low_cents": 13033,
+       "high_cents": 106084,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.3389030159",
+    "severity_scope": "own",
+    "severity_wins": 34,
+    "expected_cents": 979900,
     "expected_interval": {
-     "low_cents": 3051653,
-     "high_cents": 5042973,
+     "low_cents": 729144,
+     "high_cents": 1286623,
      "confidence": "0.95"
     }
    },
@@ -1720,10 +2926,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 5748211,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 5647843,
+      "scope": "own",
+      "rate": "0.4919354839",
+      "interval": {
+       "low": "0.4055160649",
+       "high": "0.5788395579",
+       "confidence": "0.95"
+      },
+      "n": 124,
+      "severity": "0.3213254967",
+      "expected_cents": 892763,
+      "expected_interval": {
+       "low_cents": 735929,
+       "high_cents": 1050476,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 6225511,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.3213254967",
+      "expected_cents": 75965,
+      "expected_interval": {
+       "low_cents": 26002,
+       "high_cents": 211645,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.3213254967",
+    "severity_scope": "own",
+    "severity_wins": 61,
+    "expected_cents": 968728,
     "expected_interval": {
-     "low_cents": 4733148,
-     "high_cents": 6774426,
+     "low_cents": 761931,
+     "high_cents": 1262121,
      "confidence": "0.95"
     }
    },
@@ -1777,10 +3028,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 5719264,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 8544134,
+      "scope": "own",
+      "rate": "0.3859649123",
+      "interval": {
+       "low": "0.3017076276",
+       "high": "0.4776569504",
+       "confidence": "0.95"
+      },
+      "n": 114,
+      "severity": "0.2949400126",
+      "expected_cents": 972634,
+      "expected_interval": {
+       "low_cents": 760305,
+       "high_cents": 1203699,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 6793893,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.2949400126",
+      "expected_cents": 76093,
+      "expected_interval": {
+       "low_cents": 26045,
+       "high_cents": 212002,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.2949400126",
+    "severity_scope": "own",
+    "severity_wins": 44,
+    "expected_cents": 1048727,
     "expected_interval": {
-     "low_cents": 4462320,
-     "high_cents": 7099154,
+     "low_cents": 786350,
+     "high_cents": 1415701,
      "confidence": "0.95"
     }
    },
@@ -1834,10 +3130,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 751911,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 166688,
+      "scope": "own",
+      "rate": "0.6969696970",
+      "interval": {
+       "low": "0.5266186485",
+       "high": "0.8262446858",
+       "confidence": "0.95"
+      },
+      "n": 33,
+      "severity": "0.4450051696",
+      "expected_cents": 51699,
+      "expected_interval": {
+       "low_cents": 39063,
+       "high_cents": 61288,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 912141,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.4450051696",
+      "expected_cents": 15414,
+      "expected_interval": {
+       "low_cents": 5276,
+       "high_cents": 42945,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.4450051696",
+    "severity_scope": "population",
+    "severity_wins": 1087,
+    "expected_cents": 67113,
     "expected_interval": {
-     "low_cents": 568131,
-     "high_cents": 891377,
+     "low_cents": 44339,
+     "high_cents": 104233,
      "confidence": "0.95"
     }
    },
@@ -1891,10 +3232,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 2445434,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 767867,
+      "scope": "own",
+      "rate": "0.5161290323",
+      "interval": {
+       "low": "0.3484039545",
+       "high": "0.6802974844",
+       "confidence": "0.95"
+      },
+      "n": 31,
+      "severity": "0.4450051696",
+      "expected_cents": 176364,
+      "expected_interval": {
+       "low_cents": 119051,
+       "high_cents": 232461,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 4275840,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.4450051696",
+      "expected_cents": 72257,
+      "expected_interval": {
+       "low_cents": 24732,
+       "high_cents": 201314,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.4450051696",
+    "severity_scope": "population",
+    "severity_wins": 1087,
+    "expected_cents": 248621,
     "expected_interval": {
-     "low_cents": 1639409,
-     "high_cents": 3267395,
+     "low_cents": 143783,
+     "high_cents": 433775,
      "confidence": "0.95"
     }
    },
@@ -1948,10 +3334,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 1917790,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 4748008,
+      "scope": "own",
+      "rate": "0.3333333333",
+      "interval": {
+       "low": "0.2021461882",
+       "high": "0.4966600213",
+       "confidence": "0.95"
+      },
+      "n": 36,
+      "severity": "0.4450051696",
+      "expected_cents": 704296,
+      "expected_interval": {
+       "low_cents": 427112,
+       "high_cents": 1049387,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 1644625,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.4450051696",
+      "expected_cents": 27792,
+      "expected_interval": {
+       "low_cents": 9513,
+       "high_cents": 77432,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.4450051696",
+    "severity_scope": "population",
+    "severity_wins": 1087,
+    "expected_cents": 732088,
     "expected_interval": {
-     "low_cents": 1155459,
-     "high_cents": 2904174,
+     "low_cents": 436625,
+     "high_cents": 1126819,
      "confidence": "0.95"
     }
    },
@@ -2005,10 +3436,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 853135,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 1186324,
+      "scope": "own",
+      "rate": "0.4117647059",
+      "interval": {
+       "low": "0.2636596836",
+       "high": "0.5777840612",
+       "confidence": "0.95"
+      },
+      "n": 34,
+      "severity": "0.4450051696",
+      "expected_cents": 217379,
+      "expected_interval": {
+       "low_cents": 139191,
+       "high_cents": 305024,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 885576,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.4450051696",
+      "expected_cents": 14965,
+      "expected_interval": {
+       "low_cents": 5122,
+       "high_cents": 41695,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.4450051696",
+    "severity_scope": "population",
+    "severity_wins": 1087,
+    "expected_cents": 232344,
     "expected_interval": {
-     "low_cents": 546276,
-     "high_cents": 1197111,
+     "low_cents": 144313,
+     "high_cents": 346719,
      "confidence": "0.95"
     }
    },
@@ -2062,10 +3538,55 @@
      },
      "floor": 30
     },
-    "expected_cents": 946420,
+    "positions": [
+     {
+      "position": "within_deadline",
+      "position_label": "inside the filing deadline",
+      "dollars_cents": 2732876,
+      "scope": "own",
+      "rate": "0.2777777778",
+      "interval": {
+       "low": "0.1584833794",
+       "high": "0.4399249000",
+       "confidence": "0.95"
+      },
+      "n": 36,
+      "severity": "0.4450051696",
+      "expected_cents": 337818,
+      "expected_interval": {
+       "low_cents": 192739,
+       "high_cents": 535012,
+       "confidence": "0.95"
+      }
+     },
+     {
+      "position": "past_deadline",
+      "position_label": "past the filing deadline",
+      "dollars_cents": 674235,
+      "scope": "population",
+      "rate": "0.0379746835",
+      "interval": {
+       "low": "0.0129980869",
+       "high": "0.1058006277",
+       "confidence": "0.95"
+      },
+      "n": 79,
+      "severity": "0.4450051696",
+      "expected_cents": 11394,
+      "expected_interval": {
+       "low_cents": 3900,
+       "high_cents": 31744,
+       "confidence": "0.95"
+      }
+     }
+    ],
+    "severity": "0.4450051696",
+    "severity_scope": "population",
+    "severity_wins": 1087,
+    "expected_cents": 349212,
     "expected_interval": {
-     "low_cents": 539970,
-     "high_cents": 1498873,
+     "low_cents": 196639,
+     "high_cents": 566756,
      "confidence": "0.95"
     }
    }
@@ -2113,12 +3634,11 @@
      "n": 25,
      "successes": 2,
      "evidence": "not_estimable",
-     "rate": null,
-     "interval": null,
      "floor": 30
     },
-    "expected_cents": null,
-    "expected_interval": null
+    "positions": [],
+    "severity_scope": "none",
+    "severity_wins": 0
    },
    {
     "label": "Ashvale Health Plan / final — non-appealable",
@@ -2162,12 +3682,11 @@
      "n": 4,
      "successes": 0,
      "evidence": "not_estimable",
-     "rate": null,
-     "interval": null,
      "floor": 30
     },
-    "expected_cents": null,
-    "expected_interval": null
+    "positions": [],
+    "severity_scope": "none",
+    "severity_wins": 0
    },
    {
     "label": "Ashvale Health Plan / routing and coordination of benefits",
@@ -2211,12 +3730,11 @@
      "n": 27,
      "successes": 12,
      "evidence": "not_estimable",
-     "rate": null,
-     "interval": null,
      "floor": 30
     },
-    "expected_cents": null,
-    "expected_interval": null
+    "positions": [],
+    "severity_scope": "none",
+    "severity_wins": 0
    },
    {
     "label": "Atlas Commercial / final — non-appealable",
@@ -2260,12 +3778,11 @@
      "n": 12,
      "successes": 0,
      "evidence": "not_estimable",
-     "rate": null,
-     "interval": null,
      "floor": 30
     },
-    "expected_cents": null,
-    "expected_interval": null
+    "positions": [],
+    "severity_scope": "none",
+    "severity_wins": 0
    },
    {
     "label": "Bluestone Mutual / coding",
@@ -2309,12 +3826,11 @@
      "n": 25,
      "successes": 16,
      "evidence": "not_estimable",
-     "rate": null,
-     "interval": null,
      "floor": 30
     },
-    "expected_cents": null,
-    "expected_interval": null
+    "positions": [],
+    "severity_scope": "none",
+    "severity_wins": 0
    },
    {
     "label": "Bluestone Mutual / final — non-appealable",
@@ -2358,12 +3874,11 @@
      "n": 5,
      "successes": 0,
      "evidence": "not_estimable",
-     "rate": null,
-     "interval": null,
      "floor": 30
     },
-    "expected_cents": null,
-    "expected_interval": null
+    "positions": [],
+    "severity_scope": "none",
+    "severity_wins": 0
    },
    {
     "label": "Bluestone Mutual / routing and coordination of benefits",
@@ -2407,12 +3922,11 @@
      "n": 25,
      "successes": 12,
      "evidence": "not_estimable",
-     "rate": null,
-     "interval": null,
      "floor": 30
     },
-    "expected_cents": null,
-    "expected_interval": null
+    "positions": [],
+    "severity_scope": "none",
+    "severity_wins": 0
    },
    {
     "label": "Federal Medicare / final — non-appealable",
@@ -2456,12 +3970,11 @@
      "n": 9,
      "successes": 0,
      "evidence": "not_estimable",
-     "rate": null,
-     "interval": null,
      "floor": 30
     },
-    "expected_cents": null,
-    "expected_interval": null
+    "positions": [],
+    "severity_scope": "none",
+    "severity_wins": 0
    },
    {
     "label": "Halvern Health / final — non-appealable",
@@ -2505,12 +4018,11 @@
      "n": 13,
      "successes": 0,
      "evidence": "not_estimable",
-     "rate": null,
-     "interval": null,
      "floor": 30
     },
-    "expected_cents": null,
-    "expected_interval": null
+    "positions": [],
+    "severity_scope": "none",
+    "severity_wins": 0
    },
    {
     "label": "Lakewood Medicaid MCO / clinical / medical necessity",
@@ -2554,12 +4066,11 @@
      "n": 24,
      "successes": 3,
      "evidence": "not_estimable",
-     "rate": null,
-     "interval": null,
      "floor": 30
     },
-    "expected_cents": null,
-    "expected_interval": null
+    "positions": [],
+    "severity_scope": "none",
+    "severity_wins": 0
    },
    {
     "label": "Lakewood Medicaid MCO / final — non-appealable",
@@ -2603,12 +4114,11 @@
      "n": 2,
      "successes": 0,
      "evidence": "not_estimable",
-     "rate": null,
-     "interval": null,
      "floor": 30
     },
-    "expected_cents": null,
-    "expected_interval": null
+    "positions": [],
+    "severity_scope": "none",
+    "severity_wins": 0
    },
    {
     "label": "Northbridge Commercial / final — non-appealable",
@@ -2652,12 +4162,11 @@
      "n": 2,
      "successes": 0,
      "evidence": "not_estimable",
-     "rate": null,
-     "interval": null,
      "floor": 30
     },
-    "expected_cents": null,
-    "expected_interval": null
+    "positions": [],
+    "severity_scope": "none",
+    "severity_wins": 0
    },
    {
     "label": "Silverline Medicare Advantage / final — non-appealable",
@@ -2701,12 +4210,11 @@
      "n": 4,
      "successes": 2,
      "evidence": "not_estimable",
-     "rate": null,
-     "interval": null,
      "floor": 30
     },
-    "expected_cents": null,
-    "expected_interval": null
+    "positions": [],
+    "severity_scope": "none",
+    "severity_wins": 0
    },
    {
     "label": "State Medicaid / final — non-appealable",
@@ -2750,12 +4258,11 @@
      "n": 11,
      "successes": 0,
      "evidence": "not_estimable",
-     "rate": null,
-     "interval": null,
      "floor": 30
     },
-    "expected_cents": null,
-    "expected_interval": null
+    "positions": [],
+    "severity_scope": "none",
+    "severity_wins": 0
    },
    {
     "label": "State Medicaid MCO / clinical / medical necessity",
@@ -2799,12 +4306,11 @@
      "n": 27,
      "successes": 3,
      "evidence": "not_estimable",
-     "rate": null,
-     "interval": null,
      "floor": 30
     },
-    "expected_cents": null,
-    "expected_interval": null
+    "positions": [],
+    "severity_scope": "none",
+    "severity_wins": 0
    },
    {
     "label": "State Medicaid MCO / final — non-appealable",
@@ -2848,12 +4354,11 @@
      "n": 3,
      "successes": 0,
      "evidence": "not_estimable",
-     "rate": null,
-     "interval": null,
      "floor": 30
     },
-    "expected_cents": null,
-    "expected_interval": null
+    "positions": [],
+    "severity_scope": "none",
+    "severity_wins": 0
    },
    {
     "label": "Summit Peak Medicare Advantage / clinical / medical necessity",
@@ -2897,12 +4402,11 @@
      "n": 19,
      "successes": 4,
      "evidence": "not_estimable",
-     "rate": null,
-     "interval": null,
      "floor": 30
     },
-    "expected_cents": null,
-    "expected_interval": null
+    "positions": [],
+    "severity_scope": "none",
+    "severity_wins": 0
    },
    {
     "label": "Summit Peak Medicare Advantage / final — non-appealable",
@@ -2946,12 +4450,11 @@
      "n": 1,
      "successes": 0,
      "evidence": "not_estimable",
-     "rate": null,
-     "interval": null,
      "floor": 30
     },
-    "expected_cents": null,
-    "expected_interval": null
+    "positions": [],
+    "severity_scope": "none",
+    "severity_wins": 0
    },
    {
     "label": "Veritas Comp Fund / clinical / medical necessity",
@@ -2995,12 +4498,11 @@
      "n": 12,
      "successes": 3,
      "evidence": "not_estimable",
-     "rate": null,
-     "interval": null,
      "floor": 30
     },
-    "expected_cents": null,
-    "expected_interval": null
+    "positions": [],
+    "severity_scope": "none",
+    "severity_wins": 0
    },
    {
     "label": "Veritas Comp Fund / final — non-appealable",
@@ -3044,12 +4546,11 @@
      "n": 0,
      "successes": 0,
      "evidence": "not_estimable",
-     "rate": null,
-     "interval": null,
      "floor": 30
     },
-    "expected_cents": null,
-    "expected_interval": null
+    "positions": [],
+    "severity_scope": "none",
+    "severity_wins": 0
    }
   ],
   "thin_populations": {
@@ -3059,6 +4560,116 @@
    "floor": 11
   },
   "rates": [
+   {
+    "label": "clinical / medical necessity",
+    "parts": [
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "CLINICAL",
+      "value_label": "clinical / medical necessity"
+     }
+    ],
+    "basis": "decided",
+    "n": 528,
+    "successes": 74,
+    "evidence": "measured",
+    "rate": "0.1401515152",
+    "interval": {
+     "low": "0.1131333633",
+     "high": "0.1723679948",
+     "confidence": "0.95"
+    },
+    "floor": 30
+   },
+   {
+    "label": "coding",
+    "parts": [
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "CODING",
+      "value_label": "coding"
+     }
+    ],
+    "basis": "decided",
+    "n": 508,
+    "successes": 316,
+    "evidence": "measured",
+    "rate": "0.6220472441",
+    "interval": {
+     "low": "0.5791153232",
+     "high": "0.6631471936",
+     "confidence": "0.95"
+    },
+    "floor": 30
+   },
+   {
+    "label": "final — non-appealable",
+    "parts": [
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "FINAL",
+      "value_label": "final — non-appealable"
+     }
+    ],
+    "basis": "decided",
+    "n": 66,
+    "successes": 2,
+    "evidence": "measured",
+    "rate": "0.0303030303",
+    "interval": {
+     "low": "0.0083499102",
+     "high": "0.1039252191",
+     "confidence": "0.95"
+    },
+    "floor": 30
+   },
+   {
+    "label": "registration and eligibility",
+    "parts": [
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "REGISTRATION",
+      "value_label": "registration and eligibility"
+     }
+    ],
+    "basis": "decided",
+    "n": 713,
+    "successes": 374,
+    "evidence": "measured",
+    "rate": "0.5245441795",
+    "interval": {
+     "low": "0.4878543949",
+     "high": "0.5609709061",
+     "confidence": "0.95"
+    },
+    "floor": 30
+   },
+   {
+    "label": "routing and coordination of benefits",
+    "parts": [
+     {
+      "stratifier": "recovery_class",
+      "stratifier_label": "Denial type",
+      "value": "ROUTING",
+      "value_label": "routing and coordination of benefits"
+     }
+    ],
+    "basis": "decided",
+    "n": 718,
+    "successes": 321,
+    "evidence": "measured",
+    "rate": "0.4470752089",
+    "interval": {
+     "low": "0.4110855214",
+     "high": "0.4836282013",
+     "confidence": "0.95"
+    },
+    "floor": 30
+   },
    {
     "label": "Ashvale Health Plan",
     "parts": [
@@ -3333,14 +4944,14 @@
       "value_label": "clinical / medical necessity"
      }
     ],
-    "basis": "decided",
-    "n": 528,
-    "successes": 74,
+    "basis": "pursuit",
+    "n": 1203,
+    "successes": 518,
     "evidence": "measured",
-    "rate": "0.1401515152",
+    "rate": "0.4305901912",
     "interval": {
-     "low": "0.1131333633",
-     "high": "0.1723679948",
+     "low": "0.4028740417",
+     "high": "0.4587482130",
      "confidence": "0.95"
     },
     "floor": 30
@@ -3355,14 +4966,14 @@
       "value_label": "coding"
      }
     ],
-    "basis": "decided",
-    "n": 508,
-    "successes": 316,
+    "basis": "pursuit",
+    "n": 697,
+    "successes": 535,
     "evidence": "measured",
-    "rate": "0.6220472441",
+    "rate": "0.7675753228",
     "interval": {
-     "low": "0.5791153232",
-     "high": "0.6631471936",
+     "low": "0.7348034524",
+     "high": "0.7974139205",
      "confidence": "0.95"
     },
     "floor": 30
@@ -3377,14 +4988,14 @@
       "value_label": "final — non-appealable"
      }
     ],
-    "basis": "decided",
-    "n": 66,
-    "successes": 2,
+    "basis": "pursuit",
+    "n": 611,
+    "successes": 65,
     "evidence": "measured",
-    "rate": "0.0303030303",
+    "rate": "0.1063829787",
     "interval": {
-     "low": "0.0083499102",
-     "high": "0.1039252191",
+     "low": "0.0843472076",
+     "high": "0.1333372977",
      "confidence": "0.95"
     },
     "floor": 30
@@ -3399,14 +5010,14 @@
       "value_label": "registration and eligibility"
      }
     ],
-    "basis": "decided",
-    "n": 713,
-    "successes": 374,
+    "basis": "pursuit",
+    "n": 1044,
+    "successes": 750,
     "evidence": "measured",
-    "rate": "0.5245441795",
+    "rate": "0.7183908046",
     "interval": {
-     "low": "0.4878543949",
-     "high": "0.5609709061",
+     "low": "0.6903448624",
+     "high": "0.7448354754",
      "confidence": "0.95"
     },
     "floor": 30
@@ -3421,80 +5032,14 @@
       "value_label": "routing and coordination of benefits"
      }
     ],
-    "basis": "decided",
-    "n": 718,
-    "successes": 321,
+    "basis": "pursuit",
+    "n": 1103,
+    "successes": 720,
     "evidence": "measured",
-    "rate": "0.4470752089",
+    "rate": "0.6527651859",
     "interval": {
-     "low": "0.4110855214",
-     "high": "0.4836282013",
-     "confidence": "0.95"
-    },
-    "floor": 30
-   },
-   {
-    "label": "$500-$5k",
-    "parts": [
-     {
-      "stratifier": "dollar_band",
-      "stratifier_label": "Denied amount",
-      "value": "$500-$5k",
-      "value_label": "$500-$5k"
-     }
-    ],
-    "basis": "decided",
-    "n": 1245,
-    "successes": 522,
-    "evidence": "measured",
-    "rate": "0.4192771084",
-    "interval": {
-     "low": "0.3921571425",
-     "high": "0.4468936845",
-     "confidence": "0.95"
-    },
-    "floor": 30
-   },
-   {
-    "label": "over $5k",
-    "parts": [
-     {
-      "stratifier": "dollar_band",
-      "stratifier_label": "Denied amount",
-      "value": "over $5k",
-      "value_label": "over $5k"
-     }
-    ],
-    "basis": "decided",
-    "n": 382,
-    "successes": 174,
-    "evidence": "measured",
-    "rate": "0.4554973822",
-    "interval": {
-     "low": "0.4062464663",
-     "high": "0.5056344391",
-     "confidence": "0.95"
-    },
-    "floor": 30
-   },
-   {
-    "label": "under $500",
-    "parts": [
-     {
-      "stratifier": "dollar_band",
-      "stratifier_label": "Denied amount",
-      "value": "under $500",
-      "value_label": "under $500"
-     }
-    ],
-    "basis": "decided",
-    "n": 906,
-    "successes": 391,
-    "evidence": "measured",
-    "rate": "0.4315673289",
-    "interval": {
-     "low": "0.3996717776",
-     "high": "0.4640407420",
+     "low": "0.6241823936",
+     "high": "0.6802875893",
      "confidence": "0.95"
     },
     "floor": 30
@@ -3534,7 +5079,6 @@
     },
     "z_statistic": "4.5048325441",
     "p_value": "0.0000066425",
-    "refusal_reason": null,
     "implication": "The chance of seeing a gap this size if the two were really the same is under 1 in 1,000. The gap itself is somewhere between 15.8 percentage points and 38.4 percentage points."
    },
    {
@@ -3570,7 +5114,6 @@
     },
     "z_statistic": "9.0982998879",
     "p_value": "0E-10",
-    "refusal_reason": null,
     "implication": "The chance of seeing a gap this size if the two were really the same is under 1 in 1,000. The gap itself is somewhere between 50.7 percentage points and 63.8 percentage points."
    }
   ],
@@ -3836,27 +5379,30 @@
     "Rates here are measured over the 2,533 denials the payer has already answered, out of 5,398 denials in this population.",
     "212 denials have been resubmitted and are still waiting on the payer. They are counted in neither the wins nor the losses.",
     "2,653 denials have no resubmission on file. Some of those have not been worked yet rather than never; nothing in the data separates the two.",
-    "Everything above is as the data stood on Aug 2, 2026."
+    "Everything above is as the data stood on Aug 2, 2026.",
+    "How often denials are worked is read only over denials old enough that a resubmission would have gone out by now: clinical / medical necessity 73 days, coding 18 days, final — non-appealable 95 days, registration and eligibility 26 days, routing and coordination of benefits 44 days. Younger denials are left out rather than counted as unworked. You can change these anytime.",
+    "That waiting period does not apply to the recovery rate itself. A recovery rate is measured only over denials the payer has already answered, so a denial that is too recent to have an answer is simply not in it — there is nothing to exclude, and nothing is.",
+    "2,865 denials of the 5,398 denials in this population are not in any rate above: 212 denials resubmitted and still waiting, and 2,653 denials with no resubmission on file."
    ]
   },
   "findings": [
    {
     "referent": "F1",
     "title": "What the open denials are worth",
-    "statement": "Working the 2,865 open denials still outstanding ($5,749,495.12 denied) should bring back about $1,167,668.88, somewhere between $874,052.42 and $1,518,693.69. Priced by payer and denial type: each population's open denials at that population's own measured rate.",
+    "statement": "Working the 2,865 open denials still outstanding ($5,749,495.12 denied) should bring back about $309,129.94, somewhere between $224,079.89 and $436,678.86. That figure is built one population at a time: its open dollars are split by whether the filing deadline has passed, each side is priced at the rate denials on that side actually come back at — 44.2% for what is still inside the deadline (over 2,454 answered denials) and 3.8% for what is past it (over 79 answered denials) — and the result is multiplied by 44.5 cents on the dollar, which is what a win has actually returned across 1,087 recovered denials. Priced by payer and denial type: each population's open denials at that population's own measured rate.",
     "metric_ids": [],
     "values": [
      {
       "name": "expected recoverable dollars",
-      "value": 1167668.88
+      "value": 309129.94
      },
      {
       "name": "lowest the recoverable dollars could be",
-      "value": 874052.42
+      "value": 224079.89
      },
      {
       "name": "highest the recoverable dollars could be",
-      "value": 1518693.69
+      "value": 436678.86
      },
      {
       "name": "open denied dollars",
@@ -3868,7 +5414,7 @@
      }
     ],
     "grade": "direct",
-    "impact_cents": 116766888,
+    "impact_cents": 30912994,
     "confidence": "high",
     "suggested_refinements": [],
     "benchmarks": [],
@@ -3924,6 +5470,27 @@
    },
    {
     "referent": "F4",
+    "title": "How much of this is being worked at all",
+    "statement": "Coding denials are worked 76.8% of the time, over the 697 denials old enough to tell. How often denials are worked is read only over denials old enough that a resubmission would have gone out by now: clinical / medical necessity 73 days, coding 18 days, final — non-appealable 95 days, registration and eligibility 26 days, routing and coordination of benefits 44 days. Younger denials are left out rather than counted as unworked. You can change these anytime.",
+    "metric_ids": [],
+    "values": [
+     {
+      "name": "worked rate",
+      "value": 0.7675753228
+     },
+     {
+      "name": "denials old enough to tell",
+      "value": 697
+     }
+    ],
+    "grade": "direct",
+    "confidence": "high",
+    "suggested_refinements": [],
+    "benchmarks": [],
+    "metric_caveats": []
+   },
+   {
+    "referent": "F5",
     "title": "The gap between your strongest and weakest payer",
     "statement": "Northbridge Commercial gives back 56.8% of what you resubmit (over 148 answered denials); Lakewood Medicaid MCO gives back 29.1% (over 117 answered denials). That is a gap of 27.7 percentage points. The chance of seeing a gap this size if the two were really the same is under 1 in 1,000. The gap itself is somewhere between 15.8 percentage points and 38.4 percentage points.",
     "metric_ids": [],
@@ -3958,14 +5525,13 @@
      }
     ],
     "grade": "direct",
-    "impact_cents": null,
     "confidence": "high",
     "suggested_refinements": [],
     "benchmarks": [],
     "metric_caveats": []
    },
    {
-    "referent": "F5",
+    "referent": "F6",
     "title": "The gap between your strongest and weakest denial type",
     "statement": "Coding gives back 62.2% of what you resubmit (over 508 answered denials); final — non-appealable gives back 3.0% (over 66 answered denials). That is a gap of 59.2 percentage points. The chance of seeing a gap this size if the two were really the same is under 1 in 1,000. The gap itself is somewhere between 50.7 percentage points and 63.8 percentage points.",
     "metric_ids": [],
@@ -4000,14 +5566,13 @@
      }
     ],
     "grade": "direct",
-    "impact_cents": null,
     "confidence": "high",
     "suggested_refinements": [],
     "benchmarks": [],
     "metric_caveats": []
    },
    {
-    "referent": "F6",
+    "referent": "F7",
     "title": "What waiting costs",
     "statement": "Denials resubmitted within 0-14 days come back 54.4% of the time. Once the wait reaches 61+ days it is 14.2%.",
     "metric_ids": [],
@@ -4022,14 +5587,13 @@
      }
     ],
     "grade": "direct",
-    "impact_cents": null,
     "confidence": "high",
     "suggested_refinements": [],
     "benchmarks": [],
     "metric_caveats": []
    },
    {
-    "referent": "F7",
+    "referent": "F8",
     "title": "What crossing the filing deadline costs",
     "statement": "Resubmitted inside the filing deadline, 44.2% of denials come back (over 2,454 answered denials). Past it, 3.8% do (over 79 answered denials).",
     "metric_ids": [],
@@ -4052,7 +5616,6 @@
      }
     ],
     "grade": "direct",
-    "impact_cents": null,
     "confidence": "high",
     "suggested_refinements": [],
     "benchmarks": [],
@@ -4066,253 +5629,90 @@
     "title": "Expected recoverable by population",
     "frame_id": "deep-research-expected",
     "x": "population",
-    "series": null,
     "value": "expected recoverable",
     "unit": "money_cents",
     "grade": "direct",
     "rows": [
      {
       "x": "Silverline Medicare Advantage / routing and coordination of benefits",
-      "series": null,
-      "value": 12931799,
-      "referent_id": null,
+      "value": 4713175,
       "is_bound": false,
-      "bound_population": null,
       "provisional": false
      },
      {
       "x": "Atlas Commercial / routing and coordination of benefits",
-      "series": null,
-      "value": 8777980,
-      "referent_id": null,
+      "value": 2064716,
       "is_bound": false,
-      "bound_population": null,
-      "provisional": false
-     },
-     {
-      "x": "Atlas Commercial / coding",
-      "series": null,
-      "value": 6582252,
-      "referent_id": null,
-      "is_bound": false,
-      "bound_population": null,
       "provisional": false
      },
      {
       "x": "Federal Medicare / registration and eligibility",
-      "series": null,
-      "value": 6165459,
-      "referent_id": null,
+      "value": 1754029,
       "is_bound": false,
-      "bound_population": null,
       "provisional": false
      },
      {
-      "x": "State Medicaid / registration and eligibility",
-      "series": null,
-      "value": 5748211,
-      "referent_id": null,
+      "x": "Atlas Commercial / coding",
+      "value": 1731942,
       "is_bound": false,
-      "bound_population": null,
-      "provisional": false
-     },
-     {
-      "x": "State Medicaid / routing and coordination of benefits",
-      "series": null,
-      "value": 5719264,
-      "referent_id": null,
-      "is_bound": false,
-      "bound_population": null,
-      "provisional": false
-     },
-     {
-      "x": "Atlas Commercial / clinical / medical necessity",
-      "series": null,
-      "value": 5636175,
-      "referent_id": null,
-      "is_bound": false,
-      "bound_population": null,
-      "provisional": false
-     },
-     {
-      "x": "Halvern Health / registration and eligibility",
-      "series": null,
-      "value": 4839332,
-      "referent_id": null,
-      "is_bound": false,
-      "bound_population": null,
-      "provisional": false
-     },
-     {
-      "x": "Halvern Health / routing and coordination of benefits",
-      "series": null,
-      "value": 4697179,
-      "referent_id": null,
-      "is_bound": false,
-      "bound_population": null,
-      "provisional": false
-     },
-     {
-      "x": "Northbridge Commercial / routing and coordination of benefits",
-      "series": null,
-      "value": 4315216,
-      "referent_id": null,
-      "is_bound": false,
-      "bound_population": null,
-      "provisional": false
-     },
-     {
-      "x": "Atlas Commercial / registration and eligibility",
-      "series": null,
-      "value": 4203495,
-      "referent_id": null,
-      "is_bound": false,
-      "bound_population": null,
       "provisional": false
      },
      {
       "x": "Silverline Medicare Advantage / registration and eligibility",
-      "series": null,
-      "value": 4149379,
-      "referent_id": null,
+      "value": 1444978,
       "is_bound": false,
-      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Halvern Health / routing and coordination of benefits",
+      "value": 1252211,
+      "is_bound": false,
+      "provisional": false
+     },
+     {
+      "x": "Atlas Commercial / registration and eligibility",
+      "value": 1225336,
+      "is_bound": false,
+      "provisional": false
+     },
+     {
+      "x": "Halvern Health / registration and eligibility",
+      "value": 1220805,
+      "is_bound": false,
+      "provisional": false
+     },
+     {
+      "x": "Atlas Commercial / clinical / medical necessity",
+      "value": 1056263,
+      "is_bound": false,
+      "provisional": false
+     },
+     {
+      "x": "State Medicaid / routing and coordination of benefits",
+      "value": 1048727,
+      "is_bound": false,
+      "provisional": false
+     },
+     {
+      "x": "State Medicaid / coding",
+      "value": 979900,
+      "is_bound": false,
+      "provisional": false
+     },
+     {
+      "x": "State Medicaid / registration and eligibility",
+      "value": 968728,
+      "is_bound": false,
       "provisional": false
      }
     ],
     "annotations": [
      "Every rate here is measured on your own denials. Nothing is filled in from an industry average."
     ],
-    "recipe_id": null,
-    "sort": null,
-    "axis_order": null
-   },
-   {
-    "id": "deep-research-rate-payer",
-    "chart_type": "bar",
-    "title": "Recovery rate by payer",
-    "frame_id": "deep-research-rate-payer",
-    "x": "population",
-    "series": null,
-    "value": "recovery rate",
-    "unit": "ratio",
-    "grade": "direct",
-    "rows": [
-     {
-      "x": "Ashvale Health Plan",
-      "series": null,
-      "value": 0.452991453,
-      "referent_id": null,
-      "is_bound": false,
-      "bound_population": null,
-      "provisional": false
-     },
-     {
-      "x": "Atlas Commercial",
-      "series": null,
-      "value": 0.4498069498,
-      "referent_id": null,
-      "is_bound": false,
-      "bound_population": null,
-      "provisional": false
-     },
-     {
-      "x": "Bluestone Mutual",
-      "series": null,
-      "value": 0.4225352113,
-      "referent_id": null,
-      "is_bound": false,
-      "bound_population": null,
-      "provisional": false
-     },
-     {
-      "x": "Federal Medicare",
-      "series": null,
-      "value": 0.4913043478,
-      "referent_id": null,
-      "is_bound": false,
-      "bound_population": null,
-      "provisional": false
-     },
-     {
-      "x": "Halvern Health",
-      "series": null,
-      "value": 0.4269230769,
-      "referent_id": null,
-      "is_bound": false,
-      "bound_population": null,
-      "provisional": false
-     },
-     {
-      "x": "Lakewood Medicaid MCO",
-      "series": null,
-      "value": 0.2905982906,
-      "referent_id": null,
-      "is_bound": false,
-      "bound_population": null,
-      "provisional": false
-     },
-     {
-      "x": "Northbridge Commercial",
-      "series": null,
-      "value": 0.5675675676,
-      "referent_id": null,
-      "is_bound": false,
-      "bound_population": null,
-      "provisional": false
-     },
-     {
-      "x": "Silverline Medicare Advantage",
-      "series": null,
-      "value": 0.5053003534,
-      "referent_id": null,
-      "is_bound": false,
-      "bound_population": null,
-      "provisional": false
-     },
-     {
-      "x": "State Medicaid",
-      "series": null,
-      "value": 0.3444180523,
-      "referent_id": null,
-      "is_bound": false,
-      "bound_population": null,
-      "provisional": false
-     },
-     {
-      "x": "State Medicaid MCO",
-      "series": null,
-      "value": 0.3970588235,
-      "referent_id": null,
-      "is_bound": false,
-      "bound_population": null,
-      "provisional": false
-     },
-     {
-      "x": "Summit Peak Medicare Advantage",
-      "series": null,
-      "value": 0.3392857143,
-      "referent_id": null,
-      "is_bound": false,
-      "bound_population": null,
-      "provisional": false
-     },
-     {
-      "x": "Veritas Comp Fund",
-      "series": null,
-      "value": 0.387755102,
-      "referent_id": null,
-      "is_bound": false,
-      "bound_population": null,
-      "provisional": false
-     }
-    ],
-    "annotations": [
-     "A rate is published only where at least 30 of these denials have a final answer from the payer — Revi's recommended level for recovery rates. You can change this anytime."
-    ],
-    "recipe_id": null,
-    "sort": null,
-    "axis_order": null
+    "sort": {
+     "by": "expected recoverable",
+     "direction": "desc"
+    }
    },
    {
     "id": "deep-research-rate-recovery_class",
@@ -4320,109 +5720,188 @@
     "title": "Recovery rate by denial type",
     "frame_id": "deep-research-rate-recovery_class",
     "x": "population",
-    "series": null,
     "value": "recovery rate",
     "unit": "ratio",
     "grade": "direct",
     "rows": [
      {
-      "x": "clinical / medical necessity",
-      "series": null,
-      "value": 0.1401515152,
-      "referent_id": null,
-      "is_bound": false,
-      "bound_population": null,
-      "provisional": false
-     },
-     {
       "x": "coding",
-      "series": null,
       "value": 0.6220472441,
-      "referent_id": null,
       "is_bound": false,
-      "bound_population": null,
-      "provisional": false
-     },
-     {
-      "x": "final — non-appealable",
-      "series": null,
-      "value": 0.0303030303,
-      "referent_id": null,
-      "is_bound": false,
-      "bound_population": null,
       "provisional": false
      },
      {
       "x": "registration and eligibility",
-      "series": null,
       "value": 0.5245441795,
-      "referent_id": null,
       "is_bound": false,
-      "bound_population": null,
       "provisional": false
      },
      {
       "x": "routing and coordination of benefits",
-      "series": null,
       "value": 0.4470752089,
-      "referent_id": null,
       "is_bound": false,
-      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "clinical / medical necessity",
+      "value": 0.1401515152,
+      "is_bound": false,
+      "provisional": false
+     },
+     {
+      "x": "final — non-appealable",
+      "value": 0.0303030303,
+      "is_bound": false,
       "provisional": false
      }
     ],
     "annotations": [
      "A rate is published only where at least 30 of these denials have a final answer from the payer — Revi's recommended level for recovery rates. You can change this anytime."
     ],
-    "recipe_id": null,
-    "sort": null,
-    "axis_order": null
+    "sort": {
+     "by": "recovery rate",
+     "direction": "desc"
+    }
    },
    {
-    "id": "deep-research-rate-dollar_band",
+    "id": "deep-research-rate-payer",
     "chart_type": "bar",
-    "title": "Recovery rate by denied amount",
-    "frame_id": "deep-research-rate-dollar_band",
+    "title": "Recovery rate by payer",
+    "frame_id": "deep-research-rate-payer",
     "x": "population",
-    "series": null,
     "value": "recovery rate",
     "unit": "ratio",
     "grade": "direct",
     "rows": [
      {
-      "x": "$500-$5k",
-      "series": null,
-      "value": 0.4192771084,
-      "referent_id": null,
+      "x": "Northbridge Commercial",
+      "value": 0.5675675676,
       "is_bound": false,
-      "bound_population": null,
       "provisional": false
      },
      {
-      "x": "over $5k",
-      "series": null,
-      "value": 0.4554973822,
-      "referent_id": null,
+      "x": "Silverline Medicare Advantage",
+      "value": 0.5053003534,
       "is_bound": false,
-      "bound_population": null,
       "provisional": false
      },
      {
-      "x": "under $500",
-      "series": null,
-      "value": 0.4315673289,
-      "referent_id": null,
+      "x": "Federal Medicare",
+      "value": 0.4913043478,
       "is_bound": false,
-      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Ashvale Health Plan",
+      "value": 0.452991453,
+      "is_bound": false,
+      "provisional": false
+     },
+     {
+      "x": "Atlas Commercial",
+      "value": 0.4498069498,
+      "is_bound": false,
+      "provisional": false
+     },
+     {
+      "x": "Halvern Health",
+      "value": 0.4269230769,
+      "is_bound": false,
+      "provisional": false
+     },
+     {
+      "x": "Bluestone Mutual",
+      "value": 0.4225352113,
+      "is_bound": false,
+      "provisional": false
+     },
+     {
+      "x": "State Medicaid MCO",
+      "value": 0.3970588235,
+      "is_bound": false,
+      "provisional": false
+     },
+     {
+      "x": "Veritas Comp Fund",
+      "value": 0.387755102,
+      "is_bound": false,
+      "provisional": false
+     },
+     {
+      "x": "State Medicaid",
+      "value": 0.3444180523,
+      "is_bound": false,
+      "provisional": false
+     },
+     {
+      "x": "Summit Peak Medicare Advantage",
+      "value": 0.3392857143,
+      "is_bound": false,
+      "provisional": false
+     },
+     {
+      "x": "Lakewood Medicaid MCO",
+      "value": 0.2905982906,
+      "is_bound": false,
       "provisional": false
      }
     ],
     "annotations": [
      "A rate is published only where at least 30 of these denials have a final answer from the payer — Revi's recommended level for recovery rates. You can change this anytime."
     ],
-    "recipe_id": null,
-    "sort": null,
-    "axis_order": null
+    "sort": {
+     "by": "recovery rate",
+     "direction": "desc"
+    }
+   },
+   {
+    "id": "deep-research-rate-recovery_class-worked",
+    "chart_type": "bar",
+    "title": "How often denials are worked, by denial type",
+    "frame_id": "deep-research-rate-recovery_class-worked",
+    "x": "population",
+    "value": "recovery rate",
+    "unit": "ratio",
+    "grade": "direct",
+    "rows": [
+     {
+      "x": "coding",
+      "value": 0.7675753228,
+      "is_bound": false,
+      "provisional": false
+     },
+     {
+      "x": "registration and eligibility",
+      "value": 0.7183908046,
+      "is_bound": false,
+      "provisional": false
+     },
+     {
+      "x": "routing and coordination of benefits",
+      "value": 0.6527651859,
+      "is_bound": false,
+      "provisional": false
+     },
+     {
+      "x": "clinical / medical necessity",
+      "value": 0.4305901912,
+      "is_bound": false,
+      "provisional": false
+     },
+     {
+      "x": "final — non-appealable",
+      "value": 0.1063829787,
+      "is_bound": false,
+      "provisional": false
+     }
+    ],
+    "annotations": [
+     "A rate is published only where at least 30 of these denials have a final answer from the payer — Revi's recommended level for recovery rates. You can change this anytime."
+    ],
+    "sort": {
+     "by": "recovery rate",
+     "direction": "desc"
+    }
    },
    {
     "id": "deep-research-contrast-payer_contrast",
@@ -4430,36 +5909,26 @@
     "title": "The gap between your strongest and weakest payer",
     "frame_id": "deep-research-contrast-payer_contrast",
     "x": "population",
-    "series": null,
     "value": "recovery rate",
     "unit": "ratio",
     "grade": "direct",
     "rows": [
      {
       "x": "Northbridge Commercial",
-      "series": null,
       "value": 0.5675675676,
-      "referent_id": null,
       "is_bound": false,
-      "bound_population": null,
       "provisional": false
      },
      {
       "x": "Lakewood Medicaid MCO",
-      "series": null,
       "value": 0.2905982906,
-      "referent_id": null,
       "is_bound": false,
-      "bound_population": null,
       "provisional": false
      }
     ],
     "annotations": [
      "These two were picked because they sit at the ends of the range, so read the gap as a place to look rather than a result that has been confirmed."
-    ],
-    "recipe_id": null,
-    "sort": null,
-    "axis_order": null
+    ]
    },
    {
     "id": "deep-research-contrast-class_contrast",
@@ -4467,36 +5936,26 @@
     "title": "The gap between your strongest and weakest denial type",
     "frame_id": "deep-research-contrast-class_contrast",
     "x": "population",
-    "series": null,
     "value": "recovery rate",
     "unit": "ratio",
     "grade": "direct",
     "rows": [
      {
       "x": "coding",
-      "series": null,
       "value": 0.6220472441,
-      "referent_id": null,
       "is_bound": false,
-      "bound_population": null,
       "provisional": false
      },
      {
       "x": "final — non-appealable",
-      "series": null,
       "value": 0.0303030303,
-      "referent_id": null,
       "is_bound": false,
-      "bound_population": null,
       "provisional": false
      }
     ],
     "annotations": [
      "These two were picked because they sit at the ends of the range, so read the gap as a place to look rather than a result that has been confirmed."
-    ],
-    "recipe_id": null,
-    "sort": null,
-    "axis_order": null
+    ]
    },
    {
     "id": "deep-research-timeliness",
@@ -4504,53 +5963,38 @@
     "title": "Recovery rate by days to resubmission",
     "frame_id": "deep-research-timeliness",
     "x": "days to resubmission",
-    "series": null,
     "value": "recovery rate",
     "unit": "ratio",
     "grade": "direct",
     "rows": [
      {
       "x": "0-14",
-      "series": null,
       "value": 0.5435356201,
-      "referent_id": null,
       "is_bound": false,
-      "bound_population": null,
       "provisional": false
      },
      {
       "x": "15-30",
-      "series": null,
       "value": 0.4377406932,
-      "referent_id": null,
       "is_bound": false,
-      "bound_population": null,
       "provisional": false
      },
      {
       "x": "31-60",
-      "series": null,
       "value": 0.2789115646,
-      "referent_id": null,
       "is_bound": false,
-      "bound_population": null,
       "provisional": false
      },
      {
       "x": "61+",
-      "series": null,
       "value": 0.1424148607,
-      "referent_id": null,
       "is_bound": false,
-      "bound_population": null,
       "provisional": false
      }
     ],
     "annotations": [
      "A rate is published only where at least 30 of these denials have a final answer from the payer — Revi's recommended level for recovery rates. You can change this anytime."
     ],
-    "recipe_id": null,
-    "sort": null,
     "axis_order": [
      "0-14",
      "15-30",
@@ -4564,54 +6008,38 @@
     "title": "Recovery rate on each side of the filing deadline",
     "frame_id": "deep-research-deadline",
     "x": "filing deadline position",
-    "series": null,
     "value": "recovery rate",
     "unit": "ratio",
     "grade": "direct",
     "rows": [
      {
       "x": "past the filing deadline (limit confirmed)",
-      "series": null,
       "value": 0.0,
-      "referent_id": null,
       "is_bound": false,
-      "bound_population": null,
       "provisional": false
      },
      {
       "x": "past the filing deadline (limit needs confirming)",
-      "series": null,
       "value": 0.075,
-      "referent_id": null,
       "is_bound": false,
-      "bound_population": null,
       "provisional": false
      },
      {
       "x": "inside the filing deadline (limit confirmed)",
-      "series": null,
       "value": 0.4285714286,
-      "referent_id": null,
       "is_bound": false,
-      "bound_population": null,
       "provisional": false
      },
      {
       "x": "inside the filing deadline (limit needs confirming)",
-      "series": null,
       "value": 0.4459386767,
-      "referent_id": null,
       "is_bound": false,
-      "bound_population": null,
       "provisional": false
      }
     ],
     "annotations": [
      "The drop is steeper where the filing limit is confirmed than where it is still a planning default, so the two are shown apart. Treating every limit as confirmed overstates the cliff."
-    ],
-    "recipe_id": null,
-    "sort": null,
-    "axis_order": null
+    ]
    }
   ],
   "warnings": [
@@ -4624,7 +6052,13 @@
    {
     "code": "DEEP_RESEARCH_INDEPENDENCE",
     "severity": "caution",
-    "message": "deep_research_independence: The range around the total is the sum of each population's own range. Populations that share payers, staffing and seasons move together, so read it as a spread rather than a guarantee.",
+    "message": "deep_research_independence: The range around the total is the sum of each population's own range — the widest way to add ranges up, and wider than it would be if the populations moved independently. Read it as a spread rather than a guarantee.",
+    "count": 1
+   },
+   {
+    "code": "DEEP_RESEARCH_AMOUNTS_KNOWN",
+    "severity": "caution",
+    "message": "deep_research_amounts_known: The range moves with the recovery rate only. The denied amounts, and the share of a denied dollar a win returns, are treated as known — so the true spread is wider than the one shown.",
     "count": 1
    },
    {
@@ -4668,11 +6102,32 @@
     "severity": "info",
     "message": "deep_research_censoring: Everything above is as the data stood on Aug 2, 2026.",
     "count": 1
+   },
+   {
+    "code": "DEEP_RESEARCH_CENSORING",
+    "severity": "info",
+    "message": "deep_research_censoring: How often denials are worked is read only over denials old enough that a resubmission would have gone out by now: clinical / medical necessity 73 days, coding 18 days, final — non-appealable 95 days, registration and eligibility 26 days, routing and coordination of benefits 44 days. Younger denials are left out rather than counted as unworked. You can change these anytime.",
+    "count": 1
+   },
+   {
+    "code": "DEEP_RESEARCH_CENSORING",
+    "severity": "info",
+    "message": "deep_research_censoring: That waiting period does not apply to the recovery rate itself. A recovery rate is measured only over denials the payer has already answered, so a denial that is too recent to have an answer is simply not in it — there is nothing to exclude, and nothing is.",
+    "count": 1
+   },
+   {
+    "code": "DEEP_RESEARCH_CENSORING",
+    "severity": "info",
+    "message": "deep_research_censoring: 2,865 denials of the 5,398 denials in this population are not in any rate above: 212 denials resubmitted and still waiting, and 2,653 denials with no resubmission on file.",
+    "count": 1
    }
   ],
-  "narrative": "Priced by payer and denial type: each population's open denials at that population's own measured rate. Every rate here is measured on your own denials. Nothing is filled in from an industry average. $2,430,765.30 — 42.3% of the open denied dollars — sits in 26 populations your own history cannot price yet, and is left out of the figure above. Rates here are measured over the 2,533 denials the payer has already answered, out of 5,398 denials in this population. 212 denials have been resubmitted and are still waiting on the payer. They are counted in neither the wins nor the losses. 2,653 denials have no resubmission on file. Some of those have not been worked yet rather than never; nothing in the data separates the two. Everything above is as the data stood on Aug 2, 2026. Of the open denials your own history can price, the expected recoverable dollars come to **$1,167,668.88** (F1) — measured directly against $5,749,495.12 of open denied dollars spread over 2,865 open denials (F1). The range around that total runs from a lowest the recoverable dollars could be of $874,052.42 to a highest of $1,518,693.69 (F1); because it is built by summing each population's own range, and populations that share payers, staffing and seasons move together, read it as a spread rather than a guarantee. Reconciliation is not applicable on this answer. On where the money sits, the payer spread runs from a strongest payer recovering 56.8% of the 148 denials it has answered to a weakest payer at 29.1% of 117 answered — a gap of 27.7 points, itself falling somewhere between 15.8 and 38.4 points (F4, measured directly). By denial type the spread is far wider: 62.2% at the strong end on 508 answered denials against 3.0% at the weak end on 66 answered, a gap of 59.2 points bounded between 50.7 and 63.8 points (F5, measured directly). Both pairs were picked precisely because they sit at the ends of the range, so each gap is a place to look rather than a result that has been confirmed (F4, F5). The $2,430,765.30 across 26 populations that no rate could price (F3, measured directly) is an inventory of denied dollars awaiting enough answered history — the dollars are counted and shown, but no rate stands behind them, so nothing there should be read as a forecast of what they would return. Timing is the other axis the money divides on. Of the open denied dollars, $2,831,002.86 are still inside the filing deadline and $2,918,492.26 are past it, with nothing sitting on plans with no limit on file (F2, measured directly) — that is a position count, not a statement that the past-deadline dollars are lost. What the deadline is worth shows up in the rates themselves: inside the filing deadline, denials recover at 44.6% where the limit needs confirming and 42.9% where it is confirmed, against 7.5% and 0.0% respectively past it (F7, measured directly). Speed of work tracks the same direction, with a 54.4% recovery rate when resubmitted fastest versus 14.2% when resubmitted slowest (F6, measured directly). Read together, the priced total (F1) is best understood as what the answerable portion of the inventory supports at your own measured rates, with the strongest concentration of upside where a high-recovering denial type (F5) or payer (F4) still sits inside the filing deadline (F2, F7) and can be worked quickly (F6) — and with the unpriced populations (F3) left outside that arithmetic entirely rather than assumed to be worth nothing.",
+  "narrative": "Priced by payer and denial type: each population's open denials at that population's own measured rate. These rates are measured on denials that were worked and then answered, and they are being applied to denials that have not been worked. Those are not the same mix: clinical / medical necessity and final — non-appealable — the kinds that come back least often — are 61.0% of the open denied dollars but only 23.5% of the answered denials the rates come from. Pricing each kind of denial at its own rate is what keeps that from inflating the total, which is why the money above is cut that way. Every rate here is measured on your own denials. Nothing is filled in from an industry average. The range moves with the recovery rate only. The denied amounts, and the share of a denied dollar a win returns, are treated as known — so the true spread is wider than the one shown. A win is not the full denied amount. Across the 1,087 denials that came back, payers allowed $1,234,436.05 of $2,773,981.37 denied — 44.5 cents on the dollar. Every figure above is multiplied by that. $2,430,765.30 — 42.3% of the open denied dollars — sits in 26 populations your own history cannot price yet, and is left out of the figure above. Rates here are measured over the 2,533 denials the payer has already answered, out of 5,398 denials in this population. 212 denials have been resubmitted and are still waiting on the payer. They are counted in neither the wins nor the losses. 2,653 denials have no resubmission on file. Some of those have not been worked yet rather than never; nothing in the data separates the two. Everything above is as the data stood on Aug 2, 2026. How often denials are worked is read only over denials old enough that a resubmission would have gone out by now: clinical / medical necessity 73 days, coding 18 days, final — non-appealable 95 days, registration and eligibility 26 days, routing and coordination of benefits 44 days. Younger denials are left out rather than counted as unworked. You can change these anytime. That waiting period does not apply to the recovery rate itself. A recovery rate is measured only over denials the payer has already answered, so a denial that is too recent to have an answer is simply not in it — there is nothing to exclude, and nothing is. 2,865 denials of the 5,398 denials in this population are not in any rate above: 212 denials resubmitted and still waiting, and 2,653 denials with no resubmission on file. F1 leads the certified findings on this turn, followed by F2 and F3. The remaining findings are ranked below them. Every finding here is graded direct against certified semantics. Open a finding to see the probes, grades and figures behind it.",
   "context_notes": [
-   "Getting the work out inside 0-14 days is worth 40.1 percentage points on the recovery rate compared with the slowest group.",
+   "These rates are measured on denials that were worked and then answered, and they are being applied to denials that have not been worked. Those are not the same mix: clinical / medical necessity and final — non-appealable — the kinds that come back least often — are 61.0% of the open denied dollars but only 23.5% of the answered denials the rates come from. Pricing each kind of denial at its own rate is what keeps that from inflating the total, which is why the money above is cut that way.",
+   "A win is not the full denied amount. Across the 1,087 denials that came back, payers allowed $1,234,436.05 of $2,773,981.37 denied — 44.5 cents on the dollar. Every figure above is multiplied by that.",
+   "How often denials are worked is read only over denials old enough that a resubmission would have gone out by now: clinical / medical necessity 73 days, coding 18 days, final — non-appealable 95 days, registration and eligibility 26 days, routing and coordination of benefits 44 days. Younger denials are left out rather than counted as unworked. You can change these anytime.",
+   "Getting the work out inside 0-14 days is worth 40.1 percentage points on the recovery rate compared with the slowest group. That is not all speed: the slowest group also holds the kinds of denial that come back least often, so read it as the most speed could be worth rather than what it is worth.",
    "Clinical / medical necessity denials currently take a median of 31 days to go back out.",
    "Coding denials currently take a median of 9 days to go back out.",
    "Final — non-appealable denials currently take a median of 49 days to go back out.",
@@ -4689,24 +6144,13 @@
    {
     "family": "expected_recovery",
     "title": "What the open inventory is worth",
-    "estimator": "estimate_rates[decided] + expected_recovery",
+    "estimator": "estimate_rates[decided] + deadline_rates + severity_ratios + expected_recovery",
     "read_fingerprint": "58ffb51e16fdd05412e6628d6fa82629a89fe744e5480b2ca5a36138c636a369",
     "rows_read": 5398,
     "rows_in_scope": 2533,
     "cells_published": 34,
     "cells_refused": 25,
-    "duration_ms": 6
-   },
-   {
-    "family": "outcome_by_stratum",
-    "title": "Recovery rates by population",
-    "estimator": "estimate_rates[decided]",
-    "read_fingerprint": "58ffb51e16fdd05412e6628d6fa82629a89fe744e5480b2ca5a36138c636a369",
-    "rows_read": 5398,
-    "rows_in_scope": 2533,
-    "cells_published": 12,
-    "cells_refused": 0,
-    "duration_ms": 2
+    "duration_ms": 17
    },
    {
     "family": "outcome_by_stratum",
@@ -4726,7 +6170,7 @@
     "read_fingerprint": "58ffb51e16fdd05412e6628d6fa82629a89fe744e5480b2ca5a36138c636a369",
     "rows_read": 5398,
     "rows_in_scope": 2533,
-    "cells_published": 3,
+    "cells_published": 12,
     "cells_refused": 0,
     "duration_ms": 2
    },
@@ -4773,8 +6217,19 @@
     "cells_published": 4,
     "cells_refused": 0,
     "duration_ms": 3
+   },
+   {
+    "family": "outcome_by_stratum",
+    "title": "Recovery rates by population",
+    "estimator": "estimate_rates[pursuit]",
+    "read_fingerprint": "58ffb51e16fdd05412e6628d6fa82629a89fe744e5480b2ca5a36138c636a369",
+    "rows_read": 5398,
+    "rows_in_scope": 4658,
+    "cells_published": 5,
+    "cells_refused": 0,
+    "duration_ms": 4
    }
   ]
  },
- "error": null
+ "report_kind": "recovery"
 }

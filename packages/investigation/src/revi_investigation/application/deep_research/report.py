@@ -59,6 +59,7 @@ from revi_investigation_contracts.deep_research import (
     HeadlinePayload,
     IntervalPayload,
     MoneyIntervalPayload,
+    PricedPositionPayload,
     RateCellPayload,
     ResearchAnglePayload,
     ResearchPlanPayload,
@@ -77,6 +78,7 @@ from revi_statistics_contracts.contract import (
     ExpectedRecovery,
     ExpectedRecoveryStratum,
     Interval,
+    PricedPosition,
     RateCell,
     RateEstimate,
     StratumKey,
@@ -89,6 +91,7 @@ WARN_EXTREMES = "deep_research_extremes"
 WARN_CENSORING = "deep_research_censoring"
 WARN_ANGLE_REFUSED = "deep_research_angle_refused"
 WARN_INDEPENDENCE = "deep_research_independence"
+WARN_AMOUNTS_KNOWN = "deep_research_amounts_known"
 WARN_NO_PRIOR = "deep_research_no_prior"
 WARN_THIN_ROLLUP = "deep_research_thin_rollup"
 
@@ -173,6 +176,32 @@ def _arm(arm: ContrastArm, label: str | None = None) -> ContrastArmPayload:
     )
 
 
+def _position_row(
+    position: PricedPosition, settings: DeepResearchSettings
+) -> PricedPositionPayload:
+    cell = position.rate_cell
+    return PricedPositionPayload(
+        position=position.position,
+        position_label=settings.value_label("filing_position", position.position),
+        dollars_cents=position.dollars_cents,
+        scope=str(position.scope),  # type: ignore[arg-type]
+        rate=None if cell is None or cell.rate is None else str(cell.rate),
+        interval=None if cell is None else _interval(cell.interval),
+        n=0 if cell is None else cell.n,
+        severity=None if position.severity is None else str(position.severity),
+        expected_cents=position.expected_cents,
+        expected_interval=(
+            None
+            if position.expected_interval is None
+            else _money(
+                position.expected_interval.low_cents,
+                position.expected_interval.high_cents,
+                position.expected_interval.confidence,
+            )
+        ),
+    )
+
+
 def _stratum_row(
     stratum: ExpectedRecoveryStratum, settings: DeepResearchSettings
 ) -> ExpectedRecoveryRowPayload:
@@ -186,6 +215,18 @@ def _stratum_row(
         deadline_passed_dollars_cents=stratum.deadline_passed_dollars_cents,
         deadline_unknown_dollars_cents=stratum.deadline_unknown_dollars_cents,
         rate_cell=_cell(stratum.rate_cell, settings),
+        positions=[
+            _position_row(position, settings)
+            for position in stratum.positions
+            if position.dollars_cents
+        ],
+        severity=(
+            None
+            if stratum.severity is None or stratum.severity.ratio is None
+            else str(stratum.severity.ratio)
+        ),
+        severity_scope=str(stratum.severity_scope),  # type: ignore[arg-type]
+        severity_wins=0 if stratum.severity is None else stratum.severity.wins,
         expected_cents=stratum.expected_cents,
         expected_interval=(
             None
@@ -340,6 +381,19 @@ def _by_family(results: Sequence[AngleResult]) -> Mapping[AngleFamily, list[Angl
 
 def _headline(priced: ExpectedRecovery) -> HeadlinePayload:
     every = (*priced.strata, *priced.refused_strata)
+    within = priced.within_deadline_rate
+    past = priced.past_deadline_rate
+    severity = None if priced.severity is None else priced.severity.population
+    construction = ""
+    if severity is not None and severity.ratio is not None:
+        construction = words.pricing_construction_statement(
+            within_rate=None if within is None else within.rate,
+            within_n=0 if within is None else within.n,
+            past_rate=None if past is None else past.rate,
+            past_n=0 if past is None else past.n,
+            severity=severity.ratio,
+            severity_wins=severity.wins,
+        )
     return HeadlinePayload(
         total_open_denials=sum(stratum.open_denials for stratum in every),
         total_open_dollars_cents=priced.total_open_dollars_cents,
@@ -355,7 +409,18 @@ def _headline(priced: ExpectedRecovery) -> HeadlinePayload:
         catchable_dollars_cents=priced.catchable_dollars_cents,
         deadline_passed_dollars_cents=priced.deadline_passed_dollars_cents,
         deadline_unknown_dollars_cents=priced.deadline_unknown_dollars_cents,
-        range_assumes_independence=priced.interval_assumes_independence,
+        unpriced_position_dollars_cents=priced.unpriced_position_dollars_cents,
+        construction=construction,
+        within_deadline_rate=None if within is None or within.rate is None else str(within.rate),
+        within_deadline_n=0 if within is None else within.n,
+        past_deadline_rate=None if past is None or past.rate is None else str(past.rate),
+        past_deadline_n=0 if past is None else past.n,
+        severity=None if severity is None or severity.ratio is None else str(severity.ratio),
+        severity_wins=0 if severity is None else severity.wins,
+        severity_recovered_cents=0 if severity is None else severity.recovered_cents,
+        severity_denied_cents=0 if severity is None else severity.denied_cents,
+        range_is_summed_endpoints=priced.interval_is_summed_endpoints,
+        amounts_treated_as_known=priced.amounts_treated_as_known,
     )
 
 
@@ -435,7 +500,14 @@ def _timeliness(
             slow_rate=slow_rate,
         )
         notes.append(
-            words.timeliness_implication(fast_band=fast.band, drop=fast_rate - slow_rate)
+            words.timeliness_implication(
+                fast_band=fast.band,
+                drop=fast_rate - slow_rate,
+                within=" and ".join(
+                    settings.stratifier_label(stratum).lower()
+                    for stratum in result.angle.within
+                ),
+            )
         )
     durations: DurationEstimate | None = result.durations
     if durations is not None:
@@ -462,8 +534,22 @@ def _timeliness(
 
 
 def _deadline(
-    result: AngleResult, settings: DeepResearchSettings
+    result: AngleResult,
+    settings: DeepResearchSettings,
+    *,
+    within_cell: RateCell | None,
+    past_cell: RateCell | None,
 ) -> tuple[DeadlinePayload | None, list[str]]:
+    """The deadline table, and the one sentence a reader takes away from it.
+
+    The two rates in that sentence are NOT pooled here. They arrive already
+    estimated — floored, interval-carrying, and refusing when thin — from
+    ``revi_statistics``, which is the same pair the headline priced with.
+    Adding up cell counts at this layer, as this function used to, silently
+    dropped every refused cell out of both halves and published a rate that
+    no estimator had certified, in a module whose first line says nothing
+    here computes.
+    """
     estimate = result.rates
     if estimate is None:
         return None, []
@@ -482,21 +568,30 @@ def _deadline(
         )
     notes: list[str] = [words.DEADLINE_AUTHORITY_NOTE]
     implication = ""
-    within = [
-        row for row in rows if row.position == "within_deadline" and row.cell.rate is not None
-    ]
     past = [row for row in rows if row.position == "past_deadline" and row.cell.rate is not None]
-    if within and past:
-        within_n = sum(row.cell.n for row in within)
-        within_wins = sum(row.cell.successes for row in within)
-        past_n = sum(row.cell.n for row in past)
-        past_wins = sum(row.cell.successes for row in past)
-        if within_n and past_n:
-            implication = words.deadline_statement(
-                within_rate=Decimal(within_wins) / Decimal(within_n),
-                within_n=within_n,
-                past_rate=Decimal(past_wins) / Decimal(past_n),
-                past_n=past_n,
+    if (
+        within_cell is not None
+        and within_cell.rate is not None
+        and past_cell is not None
+        and past_cell.rate is not None
+    ):
+        implication = words.deadline_statement(
+            within_rate=within_cell.rate,
+            within_n=within_cell.n,
+            past_rate=past_cell.rate,
+            past_n=past_cell.n,
+        )
+    else:
+        for thin in (within_cell, past_cell):
+            if thin is None or thin.rate is not None:
+                continue
+            position = thin.stratum.value_of("filing_position") or ""
+            notes.append(
+                words.deadline_side_refused_statement(
+                    side=settings.value_label("filing_position", position),
+                    n=thin.n,
+                    floor_sentence=settings.floor_sentence(),
+                )
             )
     for row in past:
         if row.rule == "confirmed" and row.cell.successes == 0 and row.cell.interval is not None:
@@ -545,12 +640,18 @@ def build_report(
         )
     )
     disclosures.append(priced_by)
+    # Whatever the executor had to change about the planned cut, and the
+    # transfer the whole pricing rests on, ride at the front of the
+    # disclosures — they are about the headline, not about a section.
+    disclosures.extend(pricing[0].notes)
+    context_notes.extend(pricing[0].notes)
     findings.append(
         FindingPayload(
             referent="F1",
             title=words.TITLE_HEADLINE,
             statement=" ".join(
-                (
+                part
+                for part in (
                     words.headline_statement(
                         expected=headline.total_expected_cents,
                         low=headline.total_expected_interval.low_cents,
@@ -558,8 +659,10 @@ def build_report(
                         open_dollars=headline.total_open_dollars_cents,
                         open_denials=headline.total_open_denials,
                     ),
+                    headline.construction,
                     priced_by,
                 )
+                if part
             ),
             values=[
                 FindingValue(
@@ -614,6 +717,22 @@ def build_report(
     disclosures.append(words.NO_PRIOR_SUBSTITUTED)
     warnings.append(f"{WARN_NO_PRIOR}: {words.NO_PRIOR_SUBSTITUTED}")
     warnings.append(f"{WARN_INDEPENDENCE}: {words.INDEPENDENCE_CAVEAT}")
+    # A band drawn around money reads as a band on the money. It is not —
+    # only the rate varies inside it — and that has to be said where the
+    # band is, not inferred from a field name.
+    warnings.append(f"{WARN_AMOUNTS_KNOWN}: {words.AMOUNTS_KNOWN_CAVEAT}")
+    disclosures.append(words.AMOUNTS_KNOWN_CAVEAT)
+    if priced.severity is not None and priced.severity.population.is_measured:
+        population_severity = priced.severity.population
+        assert population_severity.ratio is not None
+        severity_sentence = words.severity_statement(
+            ratio=population_severity.ratio,
+            wins=population_severity.wins,
+            recovered=population_severity.recovered_cents,
+            denied=population_severity.denied_cents,
+        )
+        disclosures.append(severity_sentence)
+        context_notes.append(severity_sentence)
     if headline.deadline_unknown_dollars_cents:
         warnings.append(f"{WARN_UNPRICED}: {words.DEADLINE_UNKNOWN_NOTE}")
 
@@ -642,11 +761,12 @@ def build_report(
                 floor=settings.disclosure_floor,
             )
         )
-    if priced.unpriced_open_dollars_cents:
+    if priced.unpriced_dollars_cents:
         unpriced_sentence = words.unpriced_statement(
-            unpriced=priced.unpriced_open_dollars_cents,
+            unpriced=priced.unpriced_dollars_cents,
             share=priced.unpriced_share,
             populations=len(priced.refused_strata),
+            no_deadline_rate=priced.unpriced_position_dollars_cents,
         )
         findings.append(
             FindingPayload(
@@ -656,12 +776,12 @@ def build_report(
                 values=[
                     FindingValue(
                         name="dollars no rate could price",
-                        value=words.dollar_value(priced.unpriced_open_dollars_cents),
+                        value=words.dollar_value(priced.unpriced_dollars_cents),
                     ),
                     FindingValue(name="populations", value=len(priced.refused_strata)),
                 ],
                 grade="direct",
-                impact_cents=priced.unpriced_open_dollars_cents,
+                impact_cents=priced.unpriced_dollars_cents,
             )
         )
         warnings.append(f"{WARN_UNPRICED}: {unpriced_sentence} {words.THIN_EXPLANATION}")
@@ -729,14 +849,28 @@ def build_report(
             charts.append(chart)
         if pursuit:
             best = max(measured, key=lambda cell: Decimal(str(cell.rate)))
+            # "Old enough to tell" is a policy, not a fact, and this is the
+            # one angle it actually governs. It says which policy.
+            windows_sentence = words.maturity_windows_statement(
+                windows=tuple(
+                    (settings.value_label("recovery_class", name), days)
+                    for name, days in sorted(settings.maturity_days.items())
+                )
+            )
+            context_notes.append(windows_sentence)
             findings.append(
                 FindingPayload(
                     referent=f"F{next_referent}",
                     title=words.TITLE_WORKED,
-                    statement=words.pursuit_statement(
-                        label=best.label.capitalize(),
-                        rate=Decimal(str(best.rate)),
-                        n=best.n,
+                    statement=" ".join(
+                        (
+                            words.pursuit_statement(
+                                label=best.label.capitalize(),
+                                rate=Decimal(str(best.rate)),
+                                n=best.n,
+                            ),
+                            windows_sentence,
+                        )
                     ),
                     values=[
                         FindingValue(name="worked rate", value=float(Decimal(str(best.rate)))),
@@ -859,7 +993,12 @@ def build_report(
     # -- the filing deadline ------------------------------------------------
     deadline: DeadlinePayload | None = None
     for result in grouped.get(AngleFamily.DEADLINE_INTERACTION, []):
-        deadline, notes = _deadline(result, settings)
+        deadline, notes = _deadline(
+            result,
+            settings,
+            within_cell=priced.within_deadline_rate,
+            past_cell=priced.past_deadline_rate,
+        )
         if deadline is None:
             continue
         context_notes.extend(notes)
@@ -898,7 +1037,31 @@ def build_report(
             charts.append(chart)
 
     # -- what the data edge cost -------------------------------------------
+    # The waiting periods are stated here even though the recovery rate does
+    # not use them, because the report advertises cohort-maturity censoring
+    # and a reader who cannot see the windows cannot disagree with them. The
+    # sentence after them says plainly where they do and do not apply: a
+    # rate measured only over answered denials has nothing to exclude for
+    # being too young, and pretending otherwise would be a caveat performing
+    # rigour it is not doing.
     censoring = _censoring(priced.disclosure, settings)
+    maturity_notes = [
+        words.maturity_windows_statement(
+            windows=tuple(
+                (settings.value_label("recovery_class", name), days)
+                for name, days in sorted(settings.maturity_days.items())
+            )
+        ),
+        words.DECIDED_MATURITY_NOTE,
+        words.decided_exclusions_statement(
+            open_undecided=priced.disclosure.excluded_open_undecided,
+            not_pursued=priced.disclosure.excluded_not_pursued,
+            total=priced.disclosure.rows_considered,
+        ),
+    ]
+    censoring = censoring.model_copy(
+        update={"statements": [*censoring.statements, *maturity_notes]}
+    )
     for statement in censoring.statements:
         warnings.append(f"{WARN_CENSORING}: {statement}")
     disclosures.extend(censoring.statements)

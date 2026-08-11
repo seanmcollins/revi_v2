@@ -17,8 +17,9 @@ from __future__ import annotations
 
 import json
 import math
-from datetime import date
-from decimal import Decimal
+from collections import Counter
+from datetime import date, timedelta
+from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal
 from itertools import pairwise
 from pathlib import Path
 from typing import Any
@@ -28,10 +29,12 @@ import pytest
 
 from revi_statistics import (
     compare_rate_cells,
+    deadline_rates,
     delay_effect_curve,
     estimate_durations,
     estimate_rates,
     expected_recovery,
+    severity_ratios,
 )
 from revi_statistics_contracts.contract import (
     Band,
@@ -628,29 +631,60 @@ class TestDurations:
 
 
 class TestExpectedRecovery:
-    def test_open_inventory_is_priced_only_where_a_cohort_supports_it(
-        self, rows: list[DenialRow], policy: EstimationPolicy
-    ) -> None:
-        evidence = estimate_rates(
-            rows,
-            basis=RateBasis.DECIDED,
-            stratify_by=(Stratifier.PAYER, Stratifier.RECOVERY_CLASS),
-            policy=policy,
-            as_of=DATA_EDGE,
-        )
+    """The headline figure, and the arithmetic that must produce it.
+
+    The construction under test has three parts, and the two that were
+    missing are the two that made the old figure four times too big:
+
+    1. the open dollars are split by filing position;
+    2. each side is priced at *that side's* decided rate, this population's
+       own where its cohort clears the floor and the read's otherwise;
+    3. the result is multiplied by what a win has actually returned on the
+       denied dollar.
+
+    :meth:`test_the_published_total_is_reproducible_to_the_cent` rebuilds
+    all three from the warehouse rows without calling the estimator once,
+    and requires equality to the cent. A tolerance here would hide exactly
+    the class of error this test exists for.
+    """
+
+    @staticmethod
+    def _priced(
+        rows: list[DenialRow], policy: EstimationPolicy, stratify: tuple[Stratifier, ...]
+    ) -> Any:
         target = [row for row in rows if not row.recovery_status.is_decided]
-        result = expected_recovery(
+        return expected_recovery(
             target,
-            rates=evidence,
-            stratify_by=(Stratifier.PAYER, Stratifier.RECOVERY_CLASS),
+            rates=estimate_rates(
+                rows,
+                basis=RateBasis.DECIDED,
+                stratify_by=stratify,
+                policy=policy,
+                as_of=DATA_EDGE,
+            ),
+            deadlines=deadline_rates(
+                rows, stratify_by=stratify, policy=policy, as_of=DATA_EDGE
+            ),
+            severity=severity_ratios(
+                rows, stratify_by=stratify, policy=policy, as_of=DATA_EDGE
+            ),
+            stratify_by=stratify,
             policy=policy,
             as_of=DATA_EDGE,
         )
 
+    def test_open_inventory_is_priced_only_where_a_cohort_supports_it(
+        self, rows: list[DenialRow], policy: EstimationPolicy
+    ) -> None:
+        result = self._priced(rows, policy, (Stratifier.PAYER, Stratifier.RECOVERY_CLASS))
+        target = [row for row in rows if not row.recovery_status.is_decided]
+
         assert len(target) == 2653 + 212
         assert result.total_open_dollars_cents == sum(row.denied_amount_cents for row in target)
         assert (
-            result.priced_open_dollars_cents + result.unpriced_open_dollars_cents
+            result.priced_open_dollars_cents
+            + result.unpriced_open_dollars_cents
+            + result.unpriced_position_dollars_cents
             == result.total_open_dollars_cents
         )
         # Payer x class over 12 payers and 5 classes leaves real thin cells,
@@ -663,21 +697,7 @@ class TestExpectedRecovery:
     def test_the_total_never_includes_a_refused_stratum(
         self, rows: list[DenialRow], policy: EstimationPolicy
     ) -> None:
-        evidence = estimate_rates(
-            rows,
-            basis=RateBasis.DECIDED,
-            stratify_by=(Stratifier.PAYER, Stratifier.RECOVERY_CLASS),
-            policy=policy,
-            as_of=DATA_EDGE,
-        )
-        target = [row for row in rows if not row.recovery_status.is_decided]
-        result = expected_recovery(
-            target,
-            rates=evidence,
-            stratify_by=(Stratifier.PAYER, Stratifier.RECOVERY_CLASS),
-            policy=policy,
-            as_of=DATA_EDGE,
-        )
+        result = self._priced(rows, policy, (Stratifier.PAYER, Stratifier.RECOVERY_CLASS))
         recomputed = sum(s.expected_cents or 0 for s in result.strata)
         assert recomputed == result.total_expected_cents
         assert (
@@ -689,42 +709,14 @@ class TestExpectedRecovery:
     def test_expected_dollars_never_exceed_the_priced_dollars(
         self, rows: list[DenialRow], policy: EstimationPolicy
     ) -> None:
-        evidence = estimate_rates(
-            rows,
-            basis=RateBasis.DECIDED,
-            stratify_by=(Stratifier.RECOVERY_CLASS,),
-            policy=policy,
-            as_of=DATA_EDGE,
-        )
-        target = [row for row in rows if not row.recovery_status.is_decided]
-        result = expected_recovery(
-            target,
-            rates=evidence,
-            stratify_by=(Stratifier.RECOVERY_CLASS,),
-            policy=policy,
-            as_of=DATA_EDGE,
-        )
+        result = self._priced(rows, policy, (Stratifier.RECOVERY_CLASS,))
         assert 0 < result.total_expected_cents < result.priced_open_dollars_cents
         assert result.total_expected_interval.high_cents <= result.priced_open_dollars_cents
 
     def test_the_deadline_split_partitions_open_dollars(
         self, rows: list[DenialRow], policy: EstimationPolicy
     ) -> None:
-        evidence = estimate_rates(
-            rows,
-            basis=RateBasis.DECIDED,
-            stratify_by=(Stratifier.RECOVERY_CLASS,),
-            policy=policy,
-            as_of=DATA_EDGE,
-        )
-        target = [row for row in rows if not row.recovery_status.is_decided]
-        result = expected_recovery(
-            target,
-            rates=evidence,
-            stratify_by=(Stratifier.RECOVERY_CLASS,),
-            policy=policy,
-            as_of=DATA_EDGE,
-        )
+        result = self._priced(rows, policy, (Stratifier.RECOVERY_CLASS,))
         assert (
             result.catchable_dollars_cents
             + result.deadline_passed_dollars_cents
@@ -737,6 +729,176 @@ class TestExpectedRecovery:
         assert result.deadline_unknown_dollars_cents == 0
         assert result.catchable_dollars_cents > 0
         assert result.deadline_passed_dollars_cents > 0
+
+    def test_the_two_deadline_rates_match_the_answer_key(
+        self, rows: list[DenialRow], policy: EstimationPolicy, answer_key: dict[str, Any]
+    ) -> None:
+        """The rates the pricing quotes are the realized ones, not new ones."""
+        result = self._priced(rows, policy, (Stratifier.PAYER,))
+        truth = {
+            (entry["filing_position"], entry["filing_rule_authority"]): entry
+            for entry in answer_key["snap_003"]["by_filing_position"]
+        }
+        for position, cell in (
+            ("within_deadline", result.within_deadline_rate),
+            ("past_deadline", result.past_deadline_rate),
+        ):
+            decided = sum(
+                truth[(position, rule)]["decided"]
+                for rule in ("confirmed", "requires_confirmation")
+            )
+            recovered = sum(
+                truth[(position, rule)]["recovered"]
+                for rule in ("confirmed", "requires_confirmation")
+            )
+            assert cell is not None, position
+            assert cell.n == decided, position
+            assert cell.successes == recovered, position
+        assert result.within_deadline_rate.n == 2454  # type: ignore[union-attr]
+        assert result.past_deadline_rate.n == 79  # type: ignore[union-attr]
+
+    def test_a_win_is_priced_at_what_a_win_has_returned(
+        self, rows: list[DenialRow], policy: EstimationPolicy
+    ) -> None:
+        """No win in this warehouse returns the full denied amount."""
+        wins = [
+            row
+            for row in rows
+            if row.recovery_status.is_decided and row.recovery_status.is_recovered
+        ]
+        assert wins
+        assert not any(row.recovered_amount_cents == row.denied_amount_cents for row in wins)
+        result = self._priced(rows, policy, (Stratifier.PAYER,))
+        assert result.severity is not None
+        population = result.severity.population
+        assert population.is_measured and population.ratio is not None
+        assert population.recovered_cents == sum(row.recovered_amount_cents for row in wins)
+        assert population.denied_cents == sum(row.denied_amount_cents for row in wins)
+        assert Decimal("0.30") < population.ratio < Decimal("0.60")
+
+    def test_the_published_total_is_reproducible_to_the_cent(
+        self, rows: list[DenialRow], policy: EstimationPolicy
+    ) -> None:
+        """Rebuild the headline from the rows, without the estimator.
+
+        This is the whole point of the fix. The old composition was
+        ``count rate x full denied dollars``, which came to 42% of the open
+        book. The construction below is the defensible one, it is written
+        here from the published rules rather than read off the result, and
+        the two must agree exactly.
+        """
+        stratify = (Stratifier.PAYER, Stratifier.RECOVERY_CLASS)
+        result = self._priced(rows, policy, stratify)
+
+        def key(row: DenialRow) -> tuple[str, str]:
+            return (row.payer_name, row.recovery_class)
+
+        def position_of(row: DenialRow, *, decided: bool) -> str:
+            if row.timely_filing_days is None:
+                return "unknown"
+            deadline = row.service_date + timedelta(days=row.timely_filing_days)
+            reference = (
+                (row.resubmission_date or DATA_EDGE) if decided else DATA_EDGE
+            )
+            return "past_deadline" if reference > deadline else "within_deadline"
+
+        def rate(successes: int, n: int) -> Decimal:
+            return (Decimal(successes) / Decimal(n)).quantize(
+                Decimal("1E-10"), rounding=ROUND_HALF_EVEN
+            )
+
+        decided = [row for row in rows if row.recovery_status.is_decided]
+        open_rows = [row for row in rows if not row.recovery_status.is_decided]
+
+        stratum_n: Counter[tuple[str, str]] = Counter()
+        position_n: Counter[tuple[tuple[str, str], str]] = Counter()
+        position_wins: Counter[tuple[tuple[str, str], str]] = Counter()
+        pooled_n: Counter[str] = Counter()
+        pooled_wins: Counter[str] = Counter()
+        wins_n: Counter[tuple[str, str]] = Counter()
+        wins_denied: Counter[tuple[str, str]] = Counter()
+        wins_recovered: Counter[tuple[str, str]] = Counter()
+        for row in decided:
+            won = row.recovery_status.is_recovered
+            place = position_of(row, decided=True)
+            stratum_n[key(row)] += 1
+            position_n[(key(row), place)] += 1
+            pooled_n[place] += 1
+            if won:
+                position_wins[(key(row), place)] += 1
+                pooled_wins[place] += 1
+                wins_n[key(row)] += 1
+                wins_denied[key(row)] += row.denied_amount_cents
+                wins_recovered[key(row)] += row.recovered_amount_cents
+
+        population_severity = rate(
+            sum(wins_recovered.values()), sum(wins_denied.values())
+        ) if sum(wins_denied.values()) else None
+        assert population_severity is not None
+        assert sum(wins_n.values()) >= MIN_COHORT
+
+        dollars: dict[tuple[tuple[str, str], str], int] = {}
+        for row in open_rows:
+            dollars[(key(row), position_of(row, decided=False))] = (
+                dollars.get((key(row), position_of(row, decided=False)), 0)
+                + row.denied_amount_cents
+            )
+
+        expected = 0
+        unpriced_thin = 0
+        unpriced_position = 0
+        for (stratum, place), cents in sorted(dollars.items()):
+            if stratum_n[stratum] < MIN_COHORT:
+                unpriced_thin += cents
+                continue
+            severity = (
+                rate(wins_recovered[stratum], wins_denied[stratum])
+                if wins_n[stratum] >= MIN_COHORT and wins_denied[stratum]
+                else population_severity
+            )
+            if place == "unknown":
+                unpriced_position += cents
+                continue
+            if position_n[(stratum, place)] >= MIN_COHORT:
+                applied = rate(position_wins[(stratum, place)], position_n[(stratum, place)])
+            elif pooled_n[place] >= MIN_COHORT:
+                applied = rate(pooled_wins[place], pooled_n[place])
+            else:
+                unpriced_position += cents
+                continue
+            expected += int(
+                (severity * applied * Decimal(cents)).quantize(
+                    Decimal(1), rounding=ROUND_HALF_UP
+                )
+            )
+
+        assert expected == result.total_expected_cents
+        assert unpriced_thin == result.unpriced_open_dollars_cents
+        assert unpriced_position == result.unpriced_position_dollars_cents
+
+    def test_the_headline_is_no_longer_forty_two_percent_of_the_open_book(
+        self, rows: list[DenialRow], policy: EstimationPolicy
+    ) -> None:
+        """The review's repro, as a regression.
+
+        ``headline / total_open`` read 0.4244 when the composition priced a
+        win at the full denied amount and ignored the filing deadline. The
+        two corrections are multiplicative and both are well below one, so
+        the ratio cannot come back near 0.42 without one of them being
+        dropped again.
+        """
+        result = self._priced(rows, policy, (Stratifier.PAYER,))
+        ratio = Decimal(result.total_expected_cents) / Decimal(
+            result.total_open_dollars_cents
+        )
+        assert ratio < Decimal("0.15")
+        # The published band must contain the honest figure, which the old
+        # one did not: its lower bound sat 44% above the truth.
+        assert (
+            result.total_expected_interval.low_cents
+            <= result.total_expected_cents
+            <= result.total_expected_interval.high_cents
+        )
 
 
 class TestDeterminism:

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Protocol
@@ -38,6 +38,7 @@ from revi_investigation.application.deep_research.rows import (
 )
 from revi_investigation.application.ports import DEFAULT_LLM_CALL_POLICY, LlmCallPolicy
 from revi_kernel.watermark import DataWatermark
+from revi_statistics_contracts.contract import DenialRow
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +68,16 @@ class DeepResearchResult:
 
 
 @dataclass(frozen=True, slots=True)
+class NarrowingOption:
+    """A population this review could be run over instead, with its size."""
+
+    kind: str
+    value: str
+    open_denials: int
+    open_dollars_cents: int
+
+
+@dataclass(frozen=True, slots=True)
 class DeepResearchPreview:
     """A run that has not started: what it would look at, and over how much."""
 
@@ -75,6 +86,11 @@ class DeepResearchPreview:
     open_dollars_cents: int
     #: The data edge every figure above was read at.
     as_of: date
+    #: Where the open money actually is, largest first — the scoping the
+    #: card can offer instead of only the broader population it already
+    #: covers. Read off the rows the preview already has, so it costs
+    #: nothing and says nothing the run would not say.
+    narrowings: tuple[NarrowingOption, ...] = ()
 
 
 class DeepResearchPlanner(Protocol):
@@ -88,6 +104,42 @@ class DeepResearchPlanner(Protocol):
         settings: DeepResearchSettings,
         policy: LlmCallPolicy = DEFAULT_LLM_CALL_POLICY,
     ) -> DeepResearchPlan: ...
+
+
+def _narrowings(
+    open_rows: Sequence[DenialRow], *, floor: int, limit: int = 4
+) -> tuple[NarrowingOption, ...]:
+    """Where the open money is, as populations this review could be scoped to.
+
+    Offered because the only options the card had were BROADER ones, which
+    is the wrong direction for the question it is asked beside: somebody
+    looking at every open denial wants to cut it down, not out. Populations
+    below the naming floor are left off — naming a population of four
+    denials and printing its dollars discloses those four denials.
+    """
+    options: list[NarrowingOption] = []
+    readers: tuple[tuple[str, Callable[[DenialRow], str]], ...] = (
+        ("payer", lambda row: row.payer_name),
+        ("recovery_class", lambda row: row.recovery_class),
+    )
+    for kind, read in readers:
+        totals: dict[str, tuple[int, int]] = {}
+        for row in open_rows:
+            value = read(row)
+            denials, cents = totals.get(value, (0, 0))
+            totals[value] = (denials + 1, cents + row.denied_amount_cents)
+        ranked = sorted(
+            (
+                NarrowingOption(
+                    kind=kind, value=value, open_denials=denials, open_dollars_cents=cents
+                )
+                for value, (denials, cents) in totals.items()
+                if denials >= floor
+            ),
+            key=lambda option: (-option.open_dollars_cents, option.value),
+        )
+        options.extend(ranked[:limit])
+    return tuple(options)
 
 
 class DeepResearchService:
@@ -134,6 +186,7 @@ class DeepResearchService:
             open_denials=len(open_rows),
             open_dollars_cents=sum(row.denied_amount_cents for row in open_rows),
             as_of=rows.as_of,
+            narrowings=_narrowings(open_rows, floor=settings.disclosure_floor),
         )
 
     async def run(

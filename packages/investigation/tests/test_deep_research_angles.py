@@ -411,7 +411,13 @@ class TestTheFilingDeadline:
 
 class TestPricingTheOpenPopulation:
     def test_a_population_with_no_measurable_history_is_priced_at_nothing(self) -> None:
-        history = wins_and_losses(2, 2, payer="Thin")
+        # One population big enough to establish what a win returns, and one
+        # too thin to price. Without the first, the whole angle refuses —
+        # there would be no measured severity to price anything with.
+        history = [
+            *wins_and_losses(10, 10, payer="Big"),
+            *wins_and_losses(2, 2, payer="Thin"),
+        ]
         open_rows = [
             denial(9000 + i, payer="Thin", status=RecoveryStatus.NOT_RESUBMITTED, delay=None)
             for i in range(5)
@@ -430,7 +436,7 @@ class TestPricingTheOpenPopulation:
         assert result.expected.unpriced_open_dollars_cents == 500_000
 
     def test_a_population_with_history_is_priced_at_its_own_rate(self) -> None:
-        history = wins_and_losses(6, 6, payer="Measured")
+        history = wins_and_losses(10, 10, payer="Measured")
         open_rows = [
             denial(
                 9100 + i,
@@ -459,7 +465,7 @@ class TestPricingTheOpenPopulation:
             ResearchAngle(
                 family=AngleFamily.EXPECTED_RECOVERY, stratify_by=(Stratum.PAYER,)
             ),
-            rows_of(*wins_and_losses(6, 6)),
+            rows_of(*wins_and_losses(10, 10)),
             settings=settings(),
             policy=settings().estimation_policy(),
         )
@@ -467,7 +473,7 @@ class TestPricingTheOpenPopulation:
         assert result.expected.total_open_dollars_cents == 0
 
     def test_the_deadline_split_partitions_the_open_dollars(self) -> None:
-        history = wins_and_losses(6, 6, payer="Measured")
+        history = wins_and_losses(10, 10, payer="Measured")
         catchable = [
             denial(
                 9200 + i,

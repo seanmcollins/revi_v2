@@ -64,6 +64,16 @@ Both are admitted to the fact set as well as the prompt. Anything this
 module instructs the model to write, it must be willing to validate — a
 validator that redacted the correction it demanded would leave the
 overclaiming sentence standing and drop the sentence that qualified it.
+
+**And a certified figure does not certify a claim ABOUT it.** Every rule
+above checks a number, a name or a characterization; none of them can tell
+whether "it is getting worse, ending below where it started" is earned by
+six monthly rates whose confidence intervals all overlap. That check lives
+in :mod:`revi_presentation.claims` and runs as one more guard in the loop
+below, over the ranges the fact set now carries: a direction the ranges do
+not support is REPLACED with the honest form, a best-or-worst inside its
+own uncertainty is replaced with a refusal, and a direction quoted over
+part of the series it rests on is dropped.
 """
 
 from __future__ import annotations
@@ -74,13 +84,17 @@ from collections.abc import Mapping, Sequence
 from decimal import Decimal, InvalidOperation
 
 from revi_investigation_contracts.api import FindingPayload
+from revi_investigation_contracts.deep_research import ResearchReadingPayload
 from revi_investigation_contracts.header import ContextHeaderPayload, basis_phrase
 from revi_investigation_contracts.narrative import (
     NarrativeFacts,
     NarrativeRedaction,
     NarrativeValidation,
+    ReadingSeries,
 )
 from revi_investigation_contracts.settings import NarrativeDepth
+from revi_presentation.claims import NEGATION as _MAGNITUDE_NEGATION
+from revi_presentation.claims import build_reading_series, claim_verdict
 
 NARRATIVE_TEMPLATE_ID = "compose_narrative"
 NARRATIVE_TEMPLATE_VERSION = "v1"
@@ -850,6 +864,7 @@ def build_determination_facts(
     caveats: Sequence[str] = (),
     disclosures: Sequence[str] = (),
     knowledge: Sequence[str] = (),
+    readings: Sequence[ResearchReadingPayload] = (),
     metric_display: Mapping[str, str] | None = None,
     published_cautions: int = 0,
     question: str | None = None,
@@ -865,6 +880,13 @@ def build_determination_facts(
     of code that holds it. A determination quoting an industry benchmark
     fails grounding and the sentence is dropped, which is the intended
     behaviour: the notes shape what is checked, never what a number says.
+
+    ``readings`` is not a widening of what may be SAID — it narrows it.
+    The study's own ordered figures and the ranges around them go into the
+    fact set so that a direction, an ordering or a truncated window is a
+    comparison the validator can make (see
+    :mod:`revi_presentation.claims`). Nothing here admits a figure a
+    finding does not already certify.
     """
     facts = build_narrative_facts(
         findings=findings,
@@ -875,6 +897,7 @@ def build_determination_facts(
         disclosures=disclosures,
         published_cautions=published_cautions,
         question=question,
+        interval_series=build_reading_series(readings),
     )
     names = set(facts.allowed_names)
     for line in knowledge:
@@ -895,8 +918,15 @@ def build_narrative_facts(
     worklist_first_action: str | None = None,
     published_cautions: int = 0,
     question: str | None = None,
+    interval_series: Sequence[ReadingSeries] = (),
 ) -> NarrativeFacts:
     """The closed fact set the validator trusts.
+
+    ``interval_series`` is empty on every quick-path turn and stays that
+    way: the quick path measures no confidence intervals, and a guard
+    that has none to check against must never be handed invented ones.
+    Only a deep-research determination fills it, through
+    :func:`build_determination_facts`.
 
     ``benchmarks`` takes the same rendered lines that
     :func:`build_narrative_prompt` puts in front of the model. A range shown
@@ -938,9 +968,9 @@ def build_narrative_facts(
             names.add(match.group(1))
     for line in (*benchmarks, *caveats, *disclosures, *(metric_display or {}).values()):
         for token in _NUMBER_TOKEN.findall(line):
-            value = _token_value(token)
-            if value is not None:
-                numbers.append(value)
+            parsed = _token_value(token)
+            if parsed is not None:
+                numbers.append(parsed)
         for match in _PROPER_NAME.finditer(line):
             names.add(match.group(1))
     if header.cohort_size is not None:
@@ -991,6 +1021,9 @@ def build_narrative_facts(
         worklist_first_action=worklist_first_action,
         # Size words the premise verdict already ruled out.
         forbidden_magnitude_claims=_forbidden_magnitude_claims(findings),
+        # The ranges under the figures, so a claim ABOUT the figures can be
+        # checked and not merely their digits.
+        interval_series=list(interval_series),
     )
 
 
@@ -1686,10 +1719,10 @@ def mandatory_disclosures(
     lead: list[str] = []
     demoted: list[str] = []
     for code in LEAD_DISCLOSURE_CODES:
-        message = by_code.get(code)
-        if message is None or code in _COMPOSED_CODES:
+        stated_message = by_code.get(code)
+        if stated_message is None or code in _COMPOSED_CODES:
             continue
-        sentence = _sentence(_strip_code_prefix(message))
+        sentence = _sentence(_strip_code_prefix(stated_message))
         if code != SETTLING_CODE:
             lead.append(sentence)
             continue
@@ -1997,14 +2030,12 @@ _FIRST_ACTION = re.compile(
 )
 
 
-#: Wording that turns a size word into a report of what did NOT happen.
-#: A sentence quoting the verdict ("denials did not double") is the
-#: sentence this rule wants; only the affirmative claim is dropped.
-_MAGNITUDE_NEGATION = re.compile(
-    r"\b(?:did not|didn'?t|does not|doesn'?t|was not|wasn'?t|were not|weren'?t|never|not|"
-    r"short of|fell short|falls short|far from|rather than|instead of|without|no)\b",
-    re.IGNORECASE,
-)
+#: Wording that turns a size word into a report of what did NOT happen is
+#: :data:`revi_presentation.claims.NEGATION`, imported above under this
+#: module's own name for it. A sentence quoting the verdict ("denials did
+#: not double") is the sentence this rule wants; only the affirmative claim
+#: is dropped. The directional guard needs exactly the same escape hatch,
+#: so the two share one pattern rather than two that can drift apart.
 
 
 def _magnitude_claim(sentence: str, verbs: Sequence[str]) -> str | None:
@@ -2179,12 +2210,17 @@ def validate_narrative(text: str, facts: NarrativeFacts) -> NarrativeValidation:
     #: stood: a composer that reaches for "worst" three times gets one
     #: certifiable statement in its place, not three.
     substitute_owed = False
+    #: The same rule for the claim guard's replacements, keyed by the words
+    #: themselves: a determination that reads a direction into one reading
+    #: three times gets one honest sentence back, not three copies.
+    claim_substitutes_used: set[str] = set()
 
     for sentence in split_sentences(text):
         if not sentence.strip():
             continue
         reason: str | None = None
         substituted = False
+        replacement = ""
         numbers = [
             tok for tok in _NUMBER_TOKEN.findall(sentence) if _token_value(tok) is not None
         ]
@@ -2232,6 +2268,15 @@ def validate_narrative(text: str, facts: NarrativeFacts) -> NarrativeValidation:
                     "only over the full population"
                 )
                 substituted = True
+        # A direction, an ordering, or a window — checked against the
+        # ranges under the figures rather than against the figures alone.
+        # Last of the vocabulary guards so that a sentence failing on
+        # grounding is still reported as a grounding failure.
+        if reason is None and facts.interval_series:
+            verdict = claim_verdict(sentence, facts.interval_series)
+            if verdict is not None:
+                reason = verdict.reason
+                replacement = verdict.substitute
         if reason is None:
             claim = _population_claim_allowed(sentence, certified_counts)
             if claim is not None:
@@ -2248,6 +2293,12 @@ def validate_narrative(text: str, facts: NarrativeFacts) -> NarrativeValidation:
             kept.append(sentence.strip())
         else:
             redactions.append(NarrativeRedaction(sentence=sentence.strip(), reason=reason))
+            if replacement and replacement not in claim_substitutes_used:
+                # A claim the ranges do not support is CORRECTED, not
+                # deleted: the reader keeps the two figures and gains the
+                # reason the movement between them is not a direction.
+                claim_substitutes_used.add(replacement)
+                kept.append(replacement)
             if substituted and facts.superlative_substitute and not substitute_owed:
                 # Never a silent hole where the answer was: the certifiable
                 # statement goes in, in the redacted sentence's own place,

@@ -277,6 +277,27 @@ class DiscoveryService:
                 return ruler
         return None
 
+    def _declaring_measures(self, dimension_id: str) -> tuple[str, ...]:
+        """Governed measures that declare this dimension as a breakdown.
+
+        Deterministic at a data load: it reads the pinned pack's contracts
+        and nothing else — no census, no cache, no ordering that depends on
+        what was asked first. A discovery claim that changed between two
+        runs of one question at one load would be the defect this closes.
+        """
+        memo_key = f"__declared_by__{dimension_id}"
+        cached = self._memo.get(memo_key)
+        if isinstance(cached, tuple):
+            return cached
+        found = tuple(
+            metric_id
+            for metric_id, _ in sorted(self._pack.metric_summaries())
+            if (contract := self._pack.metric(metric_id)) is not None
+            and any(dim.id == dimension_id for dim in contract.scope_dimensions)
+        )
+        self._memo[memo_key] = found
+        return found
+
     def _ruler_at(self, grain: EntityGrain) -> _Ruler | None:
         for ruler in self._rulers():
             if ruler.grain is grain:
@@ -624,6 +645,13 @@ class DiscoveryService:
                         ),
                         (read,),
                     )
+            # No count ruler declares this breakdown, so no coverage figure
+            # can be taken over it. That is NOT the same as "it cannot be
+            # broken out": a governed measure that declares it will break
+            # out perfectly well, and saying otherwise is a negative the
+            # data does not support. So the expression records which
+            # measures do declare it, and the sentence says the narrower
+            # true thing.
             return (
                 ConceptExpression(
                     field_id=field_id,
@@ -632,6 +660,7 @@ class DiscoveryService:
                     binding_state=state,
                     strength=grade,
                     certified=definition.certified,
+                    declared_by=self._declaring_measures(field_id),
                 ),
                 (),
             )
@@ -1017,6 +1046,11 @@ def _expression_words(expression: ConceptExpression) -> str:
     if expression.kind == "absent":
         return f"{expression.label.lower()} is not in your data"
     if expression.coverage is None:
+        if expression.declared_by:
+            return (
+                f"{expression.label.lower()} breaks out here, but nothing in your data "
+                "counts how much of it carries one"
+            )
         return f"{expression.label.lower()} cannot be broken out here"
     return f"{expression.label.lower()} is filled on {_pct(expression.coverage)} of records"
 
@@ -1047,6 +1081,20 @@ def _concept_statement(
     if not expressions:
         return f"Your definitions library carries no standard way to read {term} here."
     if preferred is None:
+        # "Nothing populates a standard reading" is a claim about the DATA.
+        # Where the only thing missing is a way to count coverage, the data
+        # carries the reading perfectly well and the sentence has to say so
+        # — a run that then breaks the field out would otherwise contradict
+        # its own preview, which is the one statement on that card a reader
+        # reads as rigour.
+        uncountable = [e for e in expressions if e.declared_by and e.coverage is None]
+        if uncountable:
+            names = ", ".join(e.label.lower() for e in uncountable[:2])
+            return (
+                f"Your data carries {term} in {names}, but nothing here counts how much "
+                f"of it is filled, so this plan treats the reading as available and its "
+                "coverage as unmeasured."
+            )
         return (
             f"Nothing in your data populates a standard reading of {term} — "
             + "; ".join(_expression_words(expression) for expression in expressions[:3])

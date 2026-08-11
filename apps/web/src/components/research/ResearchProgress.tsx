@@ -1,13 +1,15 @@
 "use client";
 
-import { AlertTriangle, Check, Telescope } from "lucide-react";
+import { AlertTriangle, Check, Square, Telescope } from "lucide-react";
 
 import { formatCount } from "@/lib/format";
 import {
   angleTitles,
+  hasFailed,
   isRunning,
   populationLabel,
   researchPhaseRows,
+  wasStopped,
   type ResearchWatchState,
 } from "@/lib/deepResearch";
 import { usePrefersReducedMotion } from "@/lib/useReducedMotion";
@@ -45,13 +47,35 @@ import { cn } from "@/lib/utils";
  * COUNT and no names — and it says the count rather than inventing eight
  * plausible titles that would then be replaced by the real ones.
  *
- * LEAVING IS SAFE AND IT SAYS SO. The wire has no cancel, and inventing a
- * "Stop" button that abandoned a watcher while the server kept working
- * would be a control that lies about what it does. What is true is that
- * the run outlives the page: it is written whether or not anybody is
- * looking, and this address is where it will be.
+ * LEAVING IS SAFE AND IT SAYS SO, AND SO IS STOPPING. Two different
+ * promises, and the surface owes both. Leaving is safe because the run
+ * outlives the page: it is written whether or not anybody is looking, and
+ * this address is where it will be. Stopping is REAL — `POST
+ * .../cancel` ends the run itself between two readings and the model call
+ * goes with it — which is what makes the control honest to draw. Until
+ * that route existed this file argued the opposite case, and it was right
+ * then for the same reason it is wrong now: a "Stop" that only abandoned
+ * the watcher while the server kept spending would have been a button
+ * that lied about what it did.
+ *
+ * A STOPPED RUN IS NOT A FAILED ONE. It gets the calm register — the run
+ * did what it was told — while `failed` and `interrupted` keep the warning
+ * one. Reporting a reader's own decision back to them in red is the
+ * clearest way to teach them not to use a control that saves them money.
  */
-export function ResearchProgress({ state }: { state: ResearchWatchState }) {
+export function ResearchProgress({
+  state,
+  onStop,
+  stopping = false,
+  stopError = null,
+}: {
+  state: ResearchWatchState;
+  /** Stop the run. Absent where nothing can be stopped (a replayed run). */
+  onStop?: () => void;
+  stopping?: boolean;
+  /** Why a stop was refused, in the server's own words. */
+  stopError?: string | null;
+}) {
   const reducedMotion = usePrefersReducedMotion();
   const { run } = state;
   const progress = run.progress;
@@ -69,7 +93,9 @@ export function ResearchProgress({ state }: { state: ResearchWatchState }) {
    */
   const asked = run.research_question ?? "";
   const population = asked !== "" ? asked : populationLabel(run.population);
-  const failed = run.status === "failed" || run.status === "interrupted";
+  const failed = hasFailed(run.status);
+  const stopped = wasStopped(run.status);
+  const running = isRunning(run.status);
   const rows = researchPhaseRows(progress, run.status);
   const round = progress.round_index ?? 0;
   const rounds = progress.round_total ?? 0;
@@ -80,28 +106,93 @@ export function ResearchProgress({ state }: { state: ResearchWatchState }) {
       aria-labelledby="research-progress-heading"
       className="mx-auto w-full max-w-3xl space-y-5"
     >
-      <header>
-        <p className="flex items-center gap-1.5 text-micro font-semibold uppercase tracking-widest text-muted-foreground">
-          <Telescope aria-hidden className="size-3" />
-          Deep research
-        </p>
-        <h2 id="research-progress-heading" className="mt-1 text-lead font-medium">
-          {failed ? "This run stopped" : "Working through"} {population}
-        </h2>
-        {asked !== "" && (
-          <p className="mt-0.5 text-meta leading-snug text-muted-foreground">
-            Revi is measuring what your data can say about this, then going after whatever
-            separates.
+      <header className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="flex items-center gap-1.5 text-micro font-semibold uppercase tracking-widest text-muted-foreground">
+            <Telescope aria-hidden className="size-3" />
+            Deep research
           </p>
-        )}
-        {run.data_load_label !== "" && (
-          <p className="num mt-0.5 text-micro text-muted-foreground">
-            Every number in this report is read at {run.data_load_label}.
-          </p>
+          <h2 id="research-progress-heading" className="mt-1 text-lead font-medium">
+            {failed ? "This run stopped" : stopped ? "Stopped working through" : "Working through"}{" "}
+            {population}
+          </h2>
+          {asked !== "" && !stopped && (
+            <p className="mt-0.5 text-meta leading-snug text-muted-foreground">
+              Revi is measuring what your data can say about this, then going after whatever
+              separates.
+            </p>
+          )}
+          {run.data_load_label !== "" && !stopped && (
+            <p className="num mt-0.5 text-micro text-muted-foreground">
+              Every number in this report is read at {run.data_load_label}.
+            </p>
+          )}
+        </div>
+
+        {/* STOP, WHILE THERE IS SOMETHING TO STOP. A run is about a minute
+            of measuring and a real model call that carry on whether or not
+            anybody is watching, so a reader who has changed their mind is
+            offered the one control that ends the work rather than only the
+            watching. It is drawn nowhere else: a run that has finished,
+            failed or already been stopped has nothing left to end, and a
+            button that did nothing would be the same lie in the other
+            direction. */}
+        {running && onStop !== undefined && (
+          <button
+            type="button"
+            onClick={onStop}
+            disabled={stopping}
+            data-research-stop
+            className="focus-ring flex shrink-0 items-center gap-1.5 rounded-md border bg-surface-sunken/70 px-2 py-1 text-meta font-medium text-muted-foreground transition-colors duration-150 hover:border-ring/40 hover:text-foreground disabled:opacity-60"
+          >
+            <Square aria-hidden className="size-3" />
+            {stopping ? "Stopping…" : "Stop this run"}
+          </button>
         )}
       </header>
 
-      {failed ? (
+      {/* A STOP THAT DID NOT LAND, in the server's own words. The run is
+          still going and still drawn below; the only thing that failed is
+          the request to end it, so that is the only thing this says. */}
+      {stopError !== null && (
+        <p
+          role="alert"
+          className="flex items-start gap-2 rounded-md border border-negative/50 bg-negative/10 px-3 py-2 text-meta leading-snug"
+        >
+          <AlertTriangle aria-hidden className="mt-0.5 size-3.5 shrink-0 text-negative" />
+          <span>{stopError}</span>
+        </p>
+      )}
+
+      {stopped ? (
+        /* THE CALM REGISTER, because nothing went wrong. The server's own
+           sentence, then the account of what the minute bought: how far it
+           had got before it ended. No report is offered because none was
+           written — a stop lands between two readings precisely so that no
+           half-measured figure ever exists to be shown. */
+        <div className="space-y-2 rounded-lg border bg-surface-sunken/40 px-3 py-2.5">
+          <p role="status" className="text-meta leading-snug">
+            {run.error ??
+              "This run was stopped on request, so nothing was published. What it had got through is kept."}
+          </p>
+          {/* HOW FAR, in the counter's own terms. "It had reached angle 3
+              of 8" rather than "it measured 3": the third was in hand when
+              the stop landed, and claiming it as measured would be this
+              surface adding a reading the run never published. */}
+          {done > 0 && total > 0 && (
+            <p className="num text-meta leading-snug text-muted-foreground">
+              It had reached angle {formatCount(done)} of {formatCount(total)}
+              {rounds > 1 ? `, on round ${formatCount(round + 1)} of ${formatCount(rounds)}` : ""}.
+            </p>
+          )}
+          {run.data_load_label !== "" && (
+            <p className="num text-micro text-muted-foreground">
+              It was reading {run.data_load_label}. Running it again starts a new run at
+              whichever load is newest then.
+            </p>
+          )}
+        </div>
+      ) : failed ? (
         /* The server's own sentence, verbatim. Nothing partial is
            published on a failed run, so there is no half-report to offer
            and the surface does not imply there is one. */
@@ -285,10 +376,19 @@ export function ResearchProgress({ state }: { state: ResearchWatchState }) {
             )
           )}
 
-          {isRunning(run.status) && (
+          {/* TWO FACTS THAT ARE EASY TO CONFUSE, SAID TOGETHER. Leaving
+              does not stop anything — the run is written whether or not
+              anybody is looking, and this address is where it will be.
+              Stopping does stop it, work and all. A surface that offered
+              the control without the distinction would leave a reader
+              guessing which of the two closing the tab was. */}
+          {running && (
             <p className="max-w-[62ch] text-meta leading-snug text-muted-foreground">
               You can leave this page. The run keeps going and the report will be here at this
               link when it is done.
+              {onStop !== undefined
+                ? " Stopping it is the other thing: the run ends where it is and nothing is published."
+                : ""}
             </p>
           )}
         </>
